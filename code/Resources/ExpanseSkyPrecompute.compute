@@ -1,0 +1,552 @@
+#pragma only_renderers d3d11 ps4 xboxone vulkan metal switch
+
+// Each #kernel tells which function to compile; you can have many kernels
+/* For now, we'll start with one kernel to compute the transmittance
+ * tables. */
+#pragma kernel COMPUTE_TRANSMITTANCE main=COMPUTE_TRANSMITTANCE
+#pragma kernel COMPUTE_LIGHT_POLLUTION main=COMPUTE_LIGHT_POLLUTION
+#pragma kernel COMPUTE_SINGLE_SCATTERING main=COMPUTE_SINGLE_SCATTERING
+#pragma kernel COMPUTE_GROUND_IRRADIANCE main=COMPUTE_GROUND_IRRADIANCE
+#pragma kernel COMPUTE_LOCAL_MULTIPLE_SCATTERING main=COMPUTE_LOCAL_MULTIPLE_SCATTERING
+#pragma kernel COMPUTE_GLOBAL_MULTIPLE_SCATTERING main=COMPUTE_GLOBAL_MULTIPLE_SCATTERING
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/CommonLighting.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Sampling/Sampling.hlsl"
+#include "Assets/CustomSky/ExpanseSky/code/ExpanseSkyCommon.hlsl"
+
+
+/* Transmittance table. Leverages spherical symmetry of the atmosphere,
+ * parameterized by:
+ * h (x dimension): the height of the camera.
+ * mu (y dimension): the zenith angle of the viewing direction. */
+RW_TEXTURE2D(float3, _TransmittanceTableRW);
+
+/* Light pollution table. Leverages spherical symmetry of the atmosphere,
+ * parameterized by:
+ * h (x dimension): the height of the camera.
+ * mu (y dimension): the zenith angle of the viewing direction. */
+RW_TEXTURE2D(float3, _LightPollutionTableAirRW);
+RW_TEXTURE2D(float3, _LightPollutionTableAerosolRW);
+
+/* Single scattering tables. Leverage spherical symmetry of the atmosphere,
+ * parameterized by:
+ * h (x dimension): the height of the camera.
+ * mu (y dimension): the zenith angle of the viewing direction.
+ * mu_l (z dimension): the zenith angle of the light source.
+ * nu (w dimension): the azimuth angle of the light source. */
+RW_TEXTURE3D(float3, _SingleScatteringTableAirRW);
+RW_TEXTURE3D(float3, _SingleScatteringTableAerosolRW);
+RW_TEXTURE3D(float3, _SingleScatteringTableAirNoShadowsRW);
+RW_TEXTURE3D(float3, _SingleScatteringTableAerosolNoShadowsRW);
+
+/* Ground irradiance table. Leverages spherical symmetry of the atmosphere,
+ * parameterized by:
+ * mu (x dimension): dot product between the surface normal and the
+ * light direction. */
+RW_TEXTURE2D(float3, _GroundIrradianceTableAirRW);
+RW_TEXTURE2D(float3, _GroundIrradianceTableAerosolRW);
+
+/* Multiple scattering table. Leverages spherical symmetry of the atmosphere,
+ * parameterized by:
+ * h (x dimension): the height of the camera.
+ * mu_l (y dimension): dot product between the surface normal and the
+ * light direction. */
+RW_TEXTURE2D(float3, _LocalMultipleScatteringTableRW);
+
+/* Global multiple scattering tables. Leverage spherical symmetry of the
+ * atmosphere, parameterized by:
+ * h (x dimension): the height of the camera.
+ * mu (y dimension): the zenith angle of the viewing direction.
+ * mu_l (z dimension): the zenith angle of the light source.
+ * nu (w dimension): the azimuth angle of the light source. */
+RW_TEXTURE3D(float3, _GlobalMultipleScatteringTableAirRW);
+RW_TEXTURE3D(float3, _GlobalMultipleScatteringTableAerosolRW);
+
+[numthreads(4,4,1)]
+void COMPUTE_TRANSMITTANCE (uint3 id : SV_DispatchThreadID)
+{
+    /* Get the uv for this id and unwrap it to a viewing angle and a
+     * height. */
+    float u_r = (id.x + 0.5f) / float(TRANSMITTANCE_TABLE_SIZE_H);
+    float u_mu = (id.y + 0.5f) / float(TRANSMITTANCE_TABLE_SIZE_MU);
+
+    float2 r_mu = unmapTransmittanceCoordinates(u_r, u_mu, _atmosphereRadius,
+      _planetRadius);
+
+    float r = r_mu.x;
+    float mu = r_mu.y;
+
+    float3 O = float3(0, r, 0);
+    float3 d = float3(safeSqrt(1 - mu * mu), mu, 0);
+
+    /* Trace a ray to see what we hit. */
+    IntersectionData intersection = traceRay(O, d, _planetRadius,
+      _atmosphereRadius);
+    float3 endPoint = O + d * intersection.endT;
+
+    /* Compute optical depth for all 3 atmosphere layers. */
+    float opticalDepthAir = computeOpticalDepthExponential(O, endPoint, _planetRadius,
+      _scaleHeightAir, _airDensity, _numberOfTransmittanceSamples);
+    float opticalDepthOzone = computeOpticalDepthTent(O, endPoint, _planetRadius,
+      _ozoneHeight, _ozoneThickness, _ozoneDensity, _numberOfTransmittanceSamples);
+    float opticalDepthAerosol = computeOpticalDepthExponential(O, endPoint,
+      _planetRadius, _scaleHeightAerosols, _aerosolDensity,
+      _numberOfTransmittanceSamples);
+
+    /* Compute transmittance from optical depth. */
+    float3 T = exp(-_airCoefficientsF3 * opticalDepthAir
+       - _ozoneCoefficientsF3 * opticalDepthOzone
+       - 1.1 * _aerosolCoefficient * opticalDepthAerosol);
+
+    _TransmittanceTableRW[id.xy] = T;
+}
+
+[numthreads(4,4,1)]
+void COMPUTE_LIGHT_POLLUTION (uint3 id : SV_DispatchThreadID)
+{
+    /* Get the uv for this id and unwrap it to a viewing angle and a
+     * height. */
+    float u_r = (id.x + 0.5f) / float(LIGHT_POLLUTION_TABLE_SIZE_H);
+    float u_mu = (id.y + 0.5f) / float(LIGHT_POLLUTION_TABLE_SIZE_MU);
+
+    float2 r_mu = unmapTransmittanceCoordinates(u_r, u_mu, _atmosphereRadius,
+      _planetRadius);
+
+    float r = r_mu.x;
+    float mu = r_mu.y;
+
+    float3 O = float3(0, r, 0);
+    float3 d = float3(safeSqrt(1 - mu * mu), mu, 0);
+
+    /* Trace a ray to see what we hit. */
+    IntersectionData intersection = traceRay(O, d, _planetRadius,
+      _atmosphereRadius);
+    float3 endPoint = O + d * intersection.endT;
+
+    float3 lightPollutionAir = float3(0.0, 0.0, 0.0);
+    float3 lightPollutionAerosol = float3(0.0, 0.0, 0.0);
+    for (int i = 0; i < _numberOfLightPollutionSamples; i++) {
+      float sampleT = 0.0;
+      float ds = 0.0;
+      if (_useImportanceSampling) {
+        /* Distribute samples cubically. This isn't optimal for the ozone
+         * layer, which actually samples better using a linear distribution,
+         * but around a sample count of 10 is enough to not notice the
+         * difference, since we still distribute the ozone samples linearly
+         * for the secondary sampling. We could theoretically compute a
+         * second sample point here exclusively for the ozone, but that
+         * seems inefficient. */
+        float2 t_ds = intersection.endT * generateCubicSampleFromIndex(i, _numberOfLightPollutionSamples);
+        sampleT = t_ds.x;
+        ds = t_ds.y;
+      } else {
+        /* Distribute linearly. */
+        float2 t_ds = intersection.endT * generateLinearSampleFromIndex(i, _numberOfLightPollutionSamples);
+        sampleT = t_ds.x;
+        ds = t_ds.y;
+      }
+
+      float3 samplePoint = O + d * sampleT;
+
+      /* Compute the scaled densities of air and aerosol layers at the
+       * sample point. */
+      float scaledDensityAir = computeDensityExponential(samplePoint,
+        _planetRadius, _scaleHeightAir, _airDensity) * ds;
+      float scaledDensityAerosol = computeDensityExponential(samplePoint,
+        _planetRadius, _scaleHeightAerosols, _aerosolDensity) * ds;
+
+      /* Compute transmittance from O to sample point. */
+      float2 oToSample = mapTransmittanceCoordinates(length(O),
+        mu, _atmosphereRadius, _planetRadius, intersection.endT, intersection.groundHit);
+
+      float3 T_oToSample = SAMPLE_TEXTURE2D_LOD(_TransmittanceTable,
+        s_linear_clamp_sampler, oToSample, 0).rgb;
+
+      /* If we didn't hit the ground, then our transmittance value for
+       * O to the sample point is too large---we need to divide out
+       * the transmittance from the sample point to the atmosphere. */
+      if (!intersection.groundHit) {
+        float2 sampleOut = mapTransmittanceCoordinates(length(samplePoint),
+          clampCosine(dot(normalize(samplePoint), d)), _atmosphereRadius, _planetRadius,
+          intersection.endT - sampleT, false);
+        float3 T_sampleOut = SAMPLE_TEXTURE2D_LOD(_TransmittanceTable,
+          s_linear_clamp_sampler, sampleOut, 0).rgb;
+        /* Clamp sample out for division. */
+        T_sampleOut = max(T_sampleOut, FLT_EPSILON);
+        T_oToSample /= T_sampleOut;
+      }
+
+      /* Compute the light transmittance to the ground. */
+      float2 sampleToGround = mapTransmittanceCoordinates(length(samplePoint),
+        -1.0, _atmosphereRadius, _planetRadius,
+        length(samplePoint) - _planetRadius, true);
+      float3 T_sampleToGround = SAMPLE_TEXTURE2D_LOD(_TransmittanceTable,
+        s_linear_clamp_sampler, sampleToGround, 0).rgb;
+
+      float3 T = T_oToSample * T_sampleToGround;
+
+      lightPollutionAir += scaledDensityAir * T;
+      lightPollutionAerosol += scaledDensityAerosol * T;
+    }
+
+    _LightPollutionTableAirRW[id.xy] = lightPollutionAir;
+    _LightPollutionTableAerosolRW[id.xy] = lightPollutionAerosol;
+}
+
+[numthreads(4,4,4)]
+void COMPUTE_SINGLE_SCATTERING (uint3 id : SV_DispatchThreadID)
+{
+  /* Get the uv for this id and unwrap it to a viewing angle, a
+   * height, and the sun zenith and azimuth angles. */
+  /* Height. */
+  float u_r = (id.x + 0.5f) / float(SINGLE_SCATTERING_TABLE_SIZE_H);
+  /* Viewing angle. */
+  float u_mu = (id.y + 0.5f) / float(SINGLE_SCATTERING_TABLE_SIZE_MU);
+
+  float2 u_mu_l_u_nu = deepTexIndexToUV(id.z,
+    SINGLE_SCATTERING_TABLE_SIZE_MU_L, SINGLE_SCATTERING_TABLE_SIZE_NU);
+  /* Sun zenith angle. */
+  float u_mu_l = u_mu_l_u_nu.x;
+  /* Sun azimuth angle. */
+  float u_nu = u_mu_l_u_nu.y;
+
+  float4 ssCoord = unmapSingleScatteringCoordinates(u_r, u_mu, u_mu_l, u_nu,
+    _atmosphereRadius, _planetRadius);
+
+  float r = ssCoord.x;
+  float mu = ssCoord.y;
+  float mu_l = ssCoord.z;
+  float nu = ssCoord.w;
+
+  float3 O = float3(0, r, 0);
+  float3 d = float3(safeSqrt(1 - mu * mu), mu, 0);
+  float3 L = float3(nu*safeSqrt(1 - mu_l*mu_l), mu_l,
+    safeSqrt(1 - nu * nu)*safeSqrt(1 - mu_l*mu_l));
+
+  /* Trace a ray to see what we hit. */
+  IntersectionData intersection = traceRay(O, d, _planetRadius,
+    _atmosphereRadius);
+
+  float3 endPoint = O + d * intersection.endT;
+  float t_hit = intersection.endT;
+
+  float3 inScatteringAir = float3(0.0, 0.0, 0.0);
+  float3 inScatteringAerosol = float3(0.0, 0.0, 0.0);
+  float3 inScatteringAirNoShadows = float3(0.0, 0.0, 0.0);
+  float3 inScatteringAerosolNoShadows = float3(0.0, 0.0, 0.0);
+  for (int i = 0; i < _numberOfScatteringSamples; i++) {
+    float sampleT = 0.0;
+    float ds = 0.0;
+    if (_useImportanceSampling) {
+      /* Distribute samples cubically. This isn't optimal for the ozone
+       * layer, which actually samples better using a linear distribution,
+       * but around a sample count of 10 is enough to not notice the
+       * difference, since we still distribute the ozone samples linearly
+       * for the secondary sampling. We could theoretically compute a
+       * second sample point here exclusively for the ozone, but that
+       * seems inefficient. */
+      float2 t_ds = t_hit * generateCubicSampleFromIndex(i, _numberOfScatteringSamples);
+      sampleT = t_ds.x;
+      ds = t_ds.y;
+    } else {
+      /* Distribute linearly. */
+      float2 t_ds = t_hit * generateLinearSampleFromIndex(i, _numberOfScatteringSamples);
+      sampleT = t_ds.x;
+      ds = t_ds.y;
+    }
+
+    float3 samplePoint = O + d * sampleT;
+    float3 normalizedSamplePoint = normalize(samplePoint);
+
+    /* Trace a ray from the sample point to the light to check visibility. */
+    IntersectionData lightIntersection = traceRay(samplePoint, L,
+      _planetRadius, _atmosphereRadius);
+
+    float3 lightEndPoint = samplePoint + L * lightIntersection.endT;
+    float t_light_hit = lightIntersection.endT;
+
+    /* Compute the scaled densities of air and aerosol layers at the
+     * sample point. */
+    float scaledDensityAir = computeDensityExponential(samplePoint,
+      _planetRadius, _scaleHeightAir, _airDensity) * ds;
+    float scaledDensityAerosol = computeDensityExponential(samplePoint,
+      _planetRadius, _scaleHeightAerosols, _aerosolDensity) * ds;
+
+    /* Compute transmittance from O to sample point, and then from sample
+     * point through to the light hit. */
+    float2 oToSample = mapTransmittanceCoordinates(length(O),
+      mu, _atmosphereRadius, _planetRadius, t_hit, intersection.groundHit);
+
+    float3 T_oToSample = SAMPLE_TEXTURE2D_LOD(_TransmittanceTable,
+      s_linear_clamp_sampler, oToSample, 0).rgb;
+
+    /* If we didn't hit the ground, then our transmittance value for
+     * O to the sample point is too large---we need to divide out
+     * the transmittance from the sample point to the atmosphere. */
+    if (!intersection.groundHit) {
+      float2 sampleOut = mapTransmittanceCoordinates(length(samplePoint),
+        clampCosine(dot(normalizedSamplePoint, d)), _atmosphereRadius, _planetRadius,
+        t_hit - sampleT, false);
+      float3 T_sampleOut = SAMPLE_TEXTURE2D_LOD(_TransmittanceTable,
+        s_linear_clamp_sampler, sampleOut, 0).rgb;
+      /* Clamp sample out for division. */
+      T_sampleOut = max(T_sampleOut, FLT_EPSILON);
+      T_oToSample /= T_sampleOut;
+    }
+
+    inScatteringAirNoShadows += scaledDensityAir * T_oToSample;
+    inScatteringAerosolNoShadows += scaledDensityAerosol * T_oToSample;
+
+    /* Compute the light transmittance to the sample point. */
+    float2 sampleToL = mapTransmittanceCoordinates(length(samplePoint),
+      clampCosine(dot(normalizedSamplePoint, L)), _atmosphereRadius, _planetRadius,
+      t_light_hit, lightIntersection.groundHit);
+    /* Compute transmittance through sample to light hit point. */
+    float3 T_sampleToL = SAMPLE_TEXTURE2D_LOD(_TransmittanceTable,
+      s_linear_clamp_sampler, sampleToL, 0).rgb;
+
+    float3 T = T_oToSample * T_sampleToL;
+
+    if (lightIntersection.groundHit) {
+      if (!intersection.groundHit) {
+        /* We'll add the light scattered off the ground surface. */
+        float dot_L_sample = saturate(dot(normalize(L), normalize(lightEndPoint)));
+        float3 groundAlbedo = _groundTintF3;
+        groundAlbedo /= PI;
+        inScatteringAir += scaledDensityAir * T * (dot_L_sample * groundAlbedo);
+        inScatteringAerosol += scaledDensityAerosol * T * (dot_L_sample * groundAlbedo);
+      }
+    } else {
+      inScatteringAir += scaledDensityAir * T;
+      inScatteringAerosol += scaledDensityAerosol * T;
+    }
+
+  }
+
+  _SingleScatteringTableAirRW[id] = inScatteringAir;
+  _SingleScatteringTableAerosolRW[id] = inScatteringAerosol;
+  _SingleScatteringTableAirNoShadowsRW[id] = inScatteringAirNoShadows;
+  _SingleScatteringTableAerosolNoShadowsRW[id] = inScatteringAerosolNoShadows;
+}
+
+[numthreads(4,1,1)]
+void COMPUTE_GROUND_IRRADIANCE (uint3 id : SV_DispatchThreadID) {
+  float u_mu_l = (id.x + 0.5f) / float(GROUND_IRRADIANCE_TABLE_SIZE);
+
+  float2 r_mu_l = unmapGroundIrradianceCoordinates(u_mu_l, _planetRadius);
+  float r = r_mu_l.x;
+  float mu_l = r_mu_l.y;
+
+  float3 O = float3(0, r, 0);
+  float3 O_normalized = float3(0, 1, 0);
+  float3 L = float3(safeSqrt(1 - mu_l * mu_l), mu_l, 0);
+
+  float3 aerosolContrib = float3(0.0, 0.0, 0.0);
+  float3 airContrib = float3(0.0, 0.0, 0.0);
+  for (int i = 0; i < _numberOfGroundIrradianceSamples; i++) {
+    /* Generate fibonacci hemisphere dir based on i. */
+    float3 d = fibonacciHemisphere(i, _numberOfGroundIrradianceSamples);
+
+    float mu = dot(d, O_normalized);
+
+    float3 proj_L = normalize(L - O_normalized * mu_l);
+    float3 proj_d = normalize(d - O_normalized * dot(O_normalized, d));
+    /* Take their dot product to get the cosine of the angle between them. */
+    float nu = clampCosine(dot(proj_L, proj_d));
+
+    /* Sample the sky table. */
+    IntersectionData intersection = traceRay(O, d, _planetRadius,
+      _atmosphereRadius);
+    if (!intersection.groundHit) {
+      float t_hit = intersection.endT;
+      TexCoord4D ssCoord = mapSingleScatteringCoordinates(r, mu, mu_l, nu,
+        _atmosphereRadius, _planetRadius, t_hit, false);
+
+      float3 singleScatteringContributionAir =
+        sampleTexture4D(_SingleScatteringTableAir, ssCoord);
+      float3 singleScatteringContributionAerosol =
+        sampleTexture4D(_SingleScatteringTableAerosol, ssCoord);
+
+      /* Compute single scattering contribution using phase functions. */
+      float dot_L_d = dot(L, d);
+      float rayleighPhase = computeAirPhase(dot_L_d);
+      float miePhase = computeAerosolPhase(dot_L_d, g);
+
+      airContrib += singleScatteringContributionAir
+      * rayleighPhase * PI / float(_numberOfGroundIrradianceSamples);
+      aerosolContrib += singleScatteringContributionAerosol
+        * miePhase * PI / float(_numberOfGroundIrradianceSamples);
+    }
+  }
+  _GroundIrradianceTableAirRW[id.xy] = airContrib;
+  _GroundIrradianceTableAerosolRW[id.xy] = aerosolContrib;
+}
+
+[numthreads(4,4,1)]
+void COMPUTE_LOCAL_MULTIPLE_SCATTERING (uint3 id : SV_DispatchThreadID) {
+  /* Unmap the uv coordinates to get the light direction and sample point. */
+  float u_r = (id.x + 0.5f) / float(MULTIPLE_SCATTERING_TABLE_SIZE_H);
+  float u_mu_l = (id.y + 0.5f) / float(MULTIPLE_SCATTERING_TABLE_SIZE_MU_L);
+
+  float2 r_mu_l = unmapLocalMultipleScatteringCoordinates(u_r, u_mu_l,
+    _atmosphereRadius, _planetRadius);
+
+  float r = r_mu_l.x;
+  float mu_l = r_mu_l.y;
+
+  float3 O = float3(0, r, 0);
+  float3 O_normalized = float3(0, 1, 0);
+  float3 L = float3(safeSqrt(1 - mu_l * mu_l), mu_l, 0);
+
+  /* Sample a bunch of directions, uniformly distributed on a sphere. */
+  float3 secondOrder = float3(0, 0, 0);
+  float3 transferFunction = float3(0, 0, 0);
+  for (int i = 0; i < _numberOfMultipleScatteringSamples; i++) {
+    /* Get the sample direction. */
+    float3 d = fibonacciSphere(i, _numberOfMultipleScatteringSamples);
+
+    /* Trace a ray to see what we hit. */
+    IntersectionData intersection = traceRay(O, d, _planetRadius,
+      _atmosphereRadius);
+
+    float3 endPoint = O + d * intersection.endT;
+    float t_hit = intersection.endT;
+
+    float3 hitPoint = O + t_hit * d;
+
+    /* We have r and mu_l, but we need to compute mu and nu. */
+    /* Mu is just the dot(O, d), aka just the y component of d. */
+    float mu = d.y;
+    /* Nu we can compute as we've done before: by projecting d and
+     * L onto the plane defined by O and taking the dot product. */
+    float3 proj_L = normalize(L - O_normalized * mu_l);
+    float3 proj_d = normalize(d - O_normalized * dot(O_normalized, d));
+    /* Take their dot product to get the cosine of the angle between them. */
+    float nu = clampCosine(dot(proj_L, proj_d));
+
+    /* Add ground albedo times the transmittance to the second order
+     * reflections if we hit the ground. */
+    if (intersection.groundHit) {
+      float2 groundUV = mapTransmittanceCoordinates(r, mu, _atmosphereRadius,
+        _planetRadius, t_hit, intersection.groundHit);
+      float3 groundTransmittance = SAMPLE_TEXTURE2D_LOD(_TransmittanceTable,
+        s_linear_clamp_sampler, groundUV, 0).rgb;
+      float3 groundAlbedo = _groundTintF3;
+      groundAlbedo /= PI;
+      secondOrder += groundTransmittance * groundAlbedo
+        * saturate(dot(L, normalize(hitPoint)));
+    }
+
+    /* Sample the single scattering tables. */
+    TexCoord4D ssCoord = mapSingleScatteringCoordinates(r, mu, mu_l, nu,
+      _atmosphereRadius, _planetRadius, t_hit, intersection.groundHit);
+
+    float3 singleScatteringContributionAir =
+      sampleTexture4D(_SingleScatteringTableAir, ssCoord);
+
+    float3 singleScatteringContributionAerosol =
+      sampleTexture4D(_SingleScatteringTableAerosol, ssCoord);
+
+    secondOrder += (_airCoefficientsF3 * singleScatteringContributionAir
+      + _aerosolCoefficient * singleScatteringContributionAerosol)
+      / (4.0 * PI);
+
+    float3 singleScatteringContributionAirNoShadows =
+      sampleTexture4D(_SingleScatteringTableAirNoShadows, ssCoord);
+
+    float3 singleScatteringContributionAerosolNoShadows =
+      sampleTexture4D(_SingleScatteringTableAerosolNoShadows, ssCoord);
+
+    transferFunction += (_airCoefficientsF3 * singleScatteringContributionAirNoShadows
+      + _aerosolCoefficient * singleScatteringContributionAerosolNoShadows);
+  }
+  /* Multiply by the isotropic phase function 1/4pi and divide by the number
+   * of samples we took. */
+  secondOrder /= 4.0 * PI * float(_numberOfMultipleScatteringSamples);
+  transferFunction /= 4.0 * PI * float(_numberOfMultipleScatteringSamples);
+  transferFunction = 1.0 / (1.0 - transferFunction);
+
+  _LocalMultipleScatteringTableRW[id.xy] = secondOrder * transferFunction;
+}
+
+[numthreads(4,4,4)]
+void COMPUTE_GLOBAL_MULTIPLE_SCATTERING (uint3 id : SV_DispatchThreadID)
+{
+  /* Get the uv for this id and unwrap it to a viewing angle, a
+   * height, and the sun zenith and azimuth angles. */
+  /* Height. */
+  float u_r = (id.x + 0.5f) / float(GLOBAL_MULTIPLE_SCATTERING_TABLE_SIZE_H);
+  /* Viewing angle. */
+  float u_mu = (id.y + 0.5f) / float(GLOBAL_MULTIPLE_SCATTERING_TABLE_SIZE_MU);
+
+  float2 u_mu_l_u_nu = deepTexIndexToUV(id.z,
+    GLOBAL_MULTIPLE_SCATTERING_TABLE_SIZE_MU_L,
+    GLOBAL_MULTIPLE_SCATTERING_TABLE_SIZE_NU);
+  /* Sun zenith angle. */
+  float u_mu_l = u_mu_l_u_nu.x;
+  /* Sun azimuth angle. */
+  float u_nu = u_mu_l_u_nu.y;
+
+  float4 ssCoord = unmapGlobalMultipleScatteringCoordinates(u_r, u_mu, u_mu_l,
+    u_nu, _atmosphereRadius, _planetRadius);
+
+  float r = ssCoord.x;
+  float mu = ssCoord.y;
+  float mu_l = ssCoord.z;
+  float nu = ssCoord.w;
+
+  float3 O = float3(0, r, 0);
+  float3 d = float3(safeSqrt(1 - mu * mu), mu, 0);
+  float3 L = float3(nu*safeSqrt(1 - mu_l*mu_l), mu_l,
+    safeSqrt(1 - nu * nu)*safeSqrt(1 - mu_l*mu_l));
+
+  IntersectionData intersection = traceRay(O, d, _planetRadius,
+    _atmosphereRadius);
+  float3 endPoint = O + d * intersection.endT;
+  float t_hit = intersection.endT;
+
+  float3 multipleScatteringAir = float3(0.0, 0.0, 0.0);
+  float3 multipleScatteringAerosol = float3(0.0, 0.0, 0.0);
+  for (int i = 0; i < _numberOfMultipleScatteringAccumulationSamples; i++) {
+    float sampleT = 0.0;
+    float ds = 0.0;
+    if (_useImportanceSampling) {
+      /* Distribute samples cubically. This isn't optimal for the ozone
+       * layer, which actually samples better using a linear distribution,
+       * but around a sample count of 10 is enough to not notice the
+       * difference, since we still distribute the ozone samples linearly
+       * for the secondary sampling. We could theoretically compute a
+       * second sample point here exclusively for the ozone, but that
+       * seems inefficient. */
+      float2 t_ds = t_hit * generateCubicSampleFromIndex(i, _numberOfMultipleScatteringAccumulationSamples);
+      sampleT = t_ds.x;
+      ds = t_ds.y;
+    } else {
+      /* Distribute linearly. */
+      float2 t_ds = t_hit * generateLinearSampleFromIndex(i, _numberOfMultipleScatteringAccumulationSamples);
+      sampleT = t_ds.x;
+      ds = t_ds.y;
+    }
+
+    float3 samplePoint = O + d * sampleT;
+
+    float r_sample = length(samplePoint);
+    float mu_l_sample = dot(normalize(samplePoint), L);
+    float2 msUV = mapLocalMultipleScatteringCoordinates(r_sample, mu_l_sample,
+      _atmosphereRadius, _planetRadius);
+    float3 msContrib = SAMPLE_TEXTURE2D_LOD(_LocalMultipleScatteringTable,
+      s_linear_clamp_sampler, msUV, 0).rgb;
+
+    float scaledDensityAir = computeDensityExponential(samplePoint,
+      _planetRadius, _scaleHeightAir, _airDensity) * ds;
+    float scaledDensityAerosol = computeDensityExponential(samplePoint,
+      _planetRadius, _scaleHeightAerosols, _aerosolDensity) * ds;
+
+    multipleScatteringAir += msContrib * scaledDensityAir;
+    multipleScatteringAerosol += msContrib * scaledDensityAerosol;
+  }
+
+  _GlobalMultipleScatteringTableAirRW[id] = multipleScatteringAir;
+  _GlobalMultipleScatteringTableAerosolRW[id] = multipleScatteringAerosol;
+}

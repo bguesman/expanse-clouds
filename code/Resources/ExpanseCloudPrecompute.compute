@@ -1,0 +1,195 @@
+#pragma only_renderers d3d11 ps4 xboxone vulkan metal switch
+
+// Each #kernel tells which function to compile; you can have many kernels
+/* For now, we'll start with one kernel to compute the transmittance
+ * tables. */
+#pragma kernel COMPUTE_CLOUD_BASE_NOISE main=COMPUTE_CLOUD_BASE_NOISE
+#pragma kernel COMPUTE_CLOUD_DETAIL_NOISE main=COMPUTE_CLOUD_DETAIL_NOISE
+#pragma kernel COMPUTE_CLOUD_CURL_NOISE main=COMPUTE_CLOUD_CURL_NOISE
+#pragma kernel COMPUTE_CLOUD_COVERAGE main=COMPUTE_CLOUD_COVERAGE
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/CommonLighting.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Sampling/Sampling.hlsl"
+#include "Assets/CustomSky/ExpanseSky/code/ExpanseSkyCommon.hlsl"
+
+
+/* Cloud base noise. */
+RW_TEXTURE3D(float4, _CloudBaseNoiseTableRW);
+
+/* Cloud detail noise. */
+RW_TEXTURE3D(float3, _CloudDetailNoiseTableRW);
+
+/* Cloud curl noise. */
+RW_TEXTURE2D(float3, _CloudCurlNoiseTableRW);
+
+/* Cloud coverage. */
+RW_TEXTURE2D(float3, _CloudCoverageTableRW);
+
+// SerializedDataParameter cloudCoarseMarchFraction;
+// SerializedDataParameter cloudDetailMarchFraction;
+// SerializedDataParameter cloudVolumeLowerRadialBoundary;
+// SerializedDataParameter cloudVolumeUpperRadialBoundary;
+// SerializedDataParameter cloudTextureAngularRange;
+// SerializedDataParameter cloudFalloffRadius;
+// SerializedDataParameter cloudUOffset;
+// SerializedDataParameter cloudVOffset;
+// SerializedDataParameter cloudWOffset;
+// SerializedDataParameter structureNoiseBlendFactor;
+// SerializedDataParameter detailNoiseBlendFactor;
+// SerializedDataParameter basePerlinOctaves;
+// SerializedDataParameter basePerlinOffset;
+// SerializedDataParameter basePerlinScaleFactor;
+// SerializedDataParameter baseWorleyOctaves;
+// SerializedDataParameter baseWorleyScaleFactor;
+// SerializedDataParameter structureOctaves;
+// SerializedDataParameter structureScaleFactor;
+// SerializedDataParameter detailOctaves;
+// SerializedDataParameter detailScaleFactor;
+
+[numthreads(4,4,4)]
+void COMPUTE_CLOUD_BASE_NOISE (uint3 id : SV_DispatchThreadID)
+{
+
+  /* Get UV. */
+  float u = (float(id.x) + 0.5) / float(CLOUD_BASE_NOISE_TABLE_SIZE_X);
+  float v = (float(id.y) + 0.5) / float(CLOUD_BASE_NOISE_TABLE_SIZE_Y);
+  float w = (float(id.z) + 0.5) / float(CLOUD_BASE_NOISE_TABLE_SIZE_Z);
+  float3 uvw = float3(u, v, w);
+
+  /* Compute "aspect ratio" between y extent and x/z extent of cloud volume. */
+  float aspect = 2 * _cloudTextureAngularRange * _planetRadius
+    / (_cloudVolumeUpperRadialBoundary - _cloudVolumeLowerRadialBoundary);
+
+  /* First, tile the uvw coordinate. */
+  uvw.y = frac(uvw.y / aspect);
+
+  /* Generate perlin noise. */
+  float perlinNoise = 0.0;
+  float maxVal = 0.0;
+  float accumulatedScale = 1.0;
+  for (int i = 0; i < 4; i++) {
+    float3 octave = _basePerlinOctaves[i] * float3(1, 1.0, 1);
+    perlinNoise += accumulatedScale * perlin(uvw, octave, float3(100.3432, 95.283, 10.48));
+    maxVal += accumulatedScale;
+    accumulatedScale *= _basePerlinScaleFactor;
+  }
+  perlinNoise /= maxVal;
+  perlinNoise = saturate(perlinNoise - _basePerlinOffset);
+
+  /* Generate worley noise to offset base perlin noise. */
+  float3x3 rotations[3] = {
+    float3x3(0.3026530, -0.2339512, 0.9239416, 0.3440376, 0.9308636, 0.1230085, -0.8888416, 0.2806418, 0.3622166),
+    float3x3(0.8547322, -0.3999069, -0.3309189, 0.2418683, -0.2572390,  0.9355896, -0.4592739, -0.8797174, -0.1231457),
+    float3x3(-0.2677768, -0.8248678,  0.4978843, -0.6715624, -0.2107493, -0.7103441, 0.6908687, -0.5245740, -0.4975164)
+  };
+
+  float3 base_worley_translations[3] = {
+    float3(0.02, 0.03, 0.01),
+    float3(0.05, 0.0323, 0.0188),
+    float3(0.0338, 0.0128, 0.09233)
+  };
+  float3x3 identityRotation = float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
+  float baseWorleyNoise = 0.0;
+  maxVal = 0.0;
+  accumulatedScale = 1.0;
+  for (int i = 0; i < 3; i++) {
+    float3 octave = _baseWorleyOctaves[i] * float3(1, 1.0, 1);
+    baseWorleyNoise += accumulatedScale * (worley(frac(mul(identityRotation, uvw)+base_worley_translations[i]), octave, identityRotation, float3(22.5, 93.2, 0.1), float3(77.537, 2953.94, 129.23), float3(53.2, 953.3, 95.2)));
+    maxVal += accumulatedScale;
+    accumulatedScale *= _baseWorleyScaleFactor;
+  }
+  baseWorleyNoise /= maxVal;
+  baseWorleyNoise = baseWorleyNoise;
+  baseWorleyNoise = saturate(baseWorleyNoise);
+
+  float baseNoise = remap(perlinNoise, 1*(baseWorleyNoise), 1.0, 0.0, 1.0);
+
+  /* Generate worley "structure" noise. */
+  float3 structureNoise = 0.0;
+  accumulatedScale = 1.0;
+  float3 structure_translations[3] = {
+    float3(0.0102, 0.0853, 0.02893),
+    float3(0.0123, 0.0834, 0.0654),
+    float3(0.0185, 0.0923, 0.023)
+  };
+  for (int i = 0; i < 3; i++) {
+    float3 octave = _structureOctaves[i] * float3(1, 1.0, 1);
+    structureNoise[i] += accumulatedScale * (1 - worley(frac(uvw + structure_translations[i]), octave, identityRotation, float3(843.3, 95.2, 182.3), float3(92.5, 764.5, 85.2), float3(92.3, 53.2, 10.2)));
+    maxVal += accumulatedScale;
+    accumulatedScale *= _structureScaleFactor;
+  }
+  structureNoise /= maxVal;
+  structureNoise = saturate(structureNoise);
+
+  _CloudBaseNoiseTableRW[id] = float4(baseNoise, structureNoise.x, structureNoise.y, structureNoise.z);
+}
+
+[numthreads(4,4,4)]
+void COMPUTE_CLOUD_DETAIL_NOISE (uint3 id : SV_DispatchThreadID)
+{
+  /* Get UV. */
+  float u = (float(id.x) + 0.5) / float(CLOUD_DETAIL_NOISE_TABLE_SIZE_X);
+  float v = (float(id.y) + 0.5) / float(CLOUD_DETAIL_NOISE_TABLE_SIZE_Y);
+  float w = (float(id.z) + 0.5) / float(CLOUD_DETAIL_NOISE_TABLE_SIZE_Z);
+  float3 uvw = float3(u, v, w);
+
+  /* Compute "aspect ratio" between y extent and x/z extent of cloud volume. */
+  float aspect = 2 * _cloudTextureAngularRange * _planetRadius
+    / (_cloudVolumeUpperRadialBoundary - _cloudVolumeLowerRadialBoundary);
+  uvw.y = frac(uvw.y / aspect);
+
+  /* Use this to modify the uvw coordinate. */
+  // uvw.y = frac(uvw.y * aspect);
+
+  /* Generate worley noise. */
+  float3 noise = float3(0.0, 0.0, 0.0);
+  float maxVal = 0.0;
+  float accumulatedScale = 1.0;
+  float3 translations[3] = {
+    float3(0.02, 0.03, 0.01),
+    float3(0.05, 0.0323, 0.0188),
+    float3(0.0338, 0.0128, 0.09233)
+  };
+  float3x3 identityRotation = float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
+  for (int i = 0; i < 3; i++) {
+    float3 octave = _detailOctaves[i] * float3(1, 1.0, 1);
+    noise[i] = accumulatedScale * (1 - worley(frac(uvw + translations[i]), octave, identityRotation, float3(34.2, 68.96, 1.03), float3(19.53, 385.3, 35.2), float3(734.3, 232.2, 22.0)));
+    maxVal += accumulatedScale;
+    accumulatedScale *= _detailScaleFactor;
+  }
+  noise /= maxVal;
+  noise = saturate(noise);
+
+  _CloudDetailNoiseTableRW[id] = noise;
+}
+
+[numthreads(4,4,1)]
+void COMPUTE_CLOUD_CURL_NOISE (uint3 id : SV_DispatchThreadID)
+{
+  /* Get UV. */
+  float u = (float(id.x) + 0.5) / 128;
+  float v = (float(id.y) + 0.5) / 128;
+  _CloudCurlNoiseTableRW[id.xy] = float3(u, v, 1);
+}
+
+[numthreads(4,4,1)]
+void COMPUTE_CLOUD_COVERAGE (uint3 id : SV_DispatchThreadID)
+{
+  /* Get UV. */
+  float u = (float(id.x) + 0.5) / float(CLOUD_COVERAGE_TABLE_SIZE_X);
+  float v = 0.25;
+  float w = (float(id.y) + 0.5) / float(CLOUD_COVERAGE_TABLE_SIZE_Y);
+  float3 uvw = float3(u, v, w);
+
+  /* Compute a few octaves of perlin noise. */
+  float perlin_contrib = 0.0;
+  int octaves[1] = {16};
+  for (int i = 0; i < 1; i++) {
+    perlin_contrib += (1.0 / pow(1.0, i)) * (perlin(float3(u, v, w), octaves[i], float3(15.32, 53.25, 93.2)));
+  };
+  perlin_contrib -= 0.5;
+  perlin_contrib = saturate(perlin_contrib);
+
+  _CloudCoverageTableRW[id.xy] = float3(perlin_contrib, perlin_contrib, perlin_contrib);
+}
