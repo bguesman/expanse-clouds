@@ -512,11 +512,11 @@ Shader "HDRP/Sky/ExpanseSky"
     if (heightGradient < 0) {
       heightGradient = abs(heightGradient);
       heightGradient = 0.5 - heightGradient;
-      heightGradient = saturate(50 * heightGradient);
+      heightGradient = saturate(10 * heightGradient);
     } else {
       heightGradient = abs(heightGradient);
       heightGradient = 0.5 - heightGradient;
-      heightGradient = saturate(10 * heightGradient);
+      heightGradient = saturate(2 * heightGradient + 0.25);
     }
     density = remap(density, 1-heightGradient, 1.0, 0.0, 1.0);
 
@@ -548,11 +548,11 @@ Shader "HDRP/Sky/ExpanseSky"
     if (heightGradient < 0) {
       heightGradient = abs(heightGradient);
       heightGradient = 0.5 - heightGradient;
-      heightGradient = saturate(50 * heightGradient);
+      heightGradient = saturate(10 * heightGradient);
     } else {
       heightGradient = abs(heightGradient);
       heightGradient = 0.5 - heightGradient;
-      heightGradient = saturate(10 * heightGradient);
+      heightGradient = saturate(2 * heightGradient + 0.25);
     }
     density = remap(density, 1-heightGradient, 1.0, 0.0, 1.0);
 
@@ -695,7 +695,7 @@ Shader "HDRP/Sky/ExpanseSky"
     float cloud_density = 1.0; /* For determining step size---start out at one to force detail step. */
     while (t < 1.0) {
       /* Modify step size. */
-      if (cloud_density > 0.1 * _cloudDensity) {
+      if (cloud_density >= 0.01 * _cloudDensity) {
         dt = _cloudDetailMarchFraction;
         numStepsLowDensity = 0;
       } else {
@@ -753,7 +753,7 @@ Shader "HDRP/Sky/ExpanseSky"
         }
 
         float lowDensitySampleBase = sampleCloudDensityLowFrequency(cloud_UV_base, length(samplePoint - O));
-        float depthProbability = pow(lowDensitySampleBase/_cloudDensity, 2);
+        float depthProbability = 0.05 + pow(lowDensitySampleBase/_cloudDensity, max(0.0, remap(cloud_UV_base.y, 0.3, 0.85, 0.75, 1.0)));
 
         /* Accumulate cloud lighting. */
         cloudLighting += depthProbability * ds * cloud_density * (cloudAlpha);
@@ -761,14 +761,18 @@ Shader "HDRP/Sky/ExpanseSky"
 
       /* Compute transmittance and write depth if we are above 0.5 and
        * haven't already written depth. */
-      if (atmosphericBlendFactor.x < 0) {
-        float depthTestTransmittance = saturate(cloudTransmittance(cloudOpticalDepth * (1/t), 1));
-        if ((1-cloudAlpha) >= 0.5) {
-          /* HACK: should use atmospheric model, but this is just easier. */
-          float dist = length(O - samplePoint);
-          atmosphericBlendFactor = saturate(1 - 1/(1 + exp((-dist/5000)+4)));
-        }
-      }
+      // if (atmosphericBlendFactor.x < 0) {
+      //   float depthTestTransmittance = saturate(cloudTransmittance(cloudOpticalDepth * (1/t), 1));
+      //   if ((1-cloudAlpha) >= 0.5) {
+      //     /* HACK: should use atmospheric model, but this is just easier. */
+      //     float dist = length(O - samplePoint);
+      //     atmosphericBlendFactor = saturate(1 - 1/(1 + exp((-dist/5000)+4)));
+      //   }
+      // }
+    }
+    if (atmosphericBlendFactor.x < 0) {
+      float dist = length(O - startPoint);
+      atmosphericBlendFactor = saturate(1 - 1/(1 + exp((-dist/5000)+6)));
     }
 
     float cloudT = saturate(cloudTransmittance(cloudOpticalDepth, 1));
@@ -868,7 +872,8 @@ Shader "HDRP/Sky/ExpanseSky"
 
   float4 FragBaking(Varyings input) : SV_Target
   {
-    return float4(RenderSky(input, 1.0, float2(0, 0)).xyz, 1.0);
+    return float4(0, 0, 0, 1);
+    // return float4(RenderSky(input, 1.0, float2(0, 0)).xyz, 1.0);
   }
 
   float4 FragRender(Varyings input) : SV_Target
