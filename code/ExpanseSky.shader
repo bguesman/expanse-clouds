@@ -18,7 +18,7 @@ Shader "HDRP/Sky/ExpanseSky"
   #include "Packages/com.unity.render-pipelines.high-definition/Runtime/Lighting/LightLoop/CookieSampling.hlsl"
 
   /* Common functions and global variables. */
-  #include "Assets/CustomSky/ExpanseSky/code/ExpanseSkyCommon.hlsl"
+  #include "Assets/CustomSky/expanse-clouds/code/ExpanseSkyCommon.hlsl"
 
 /* TODO: had to remove a check that physically based sky was active in
  * the main light loop C# script to get additional light data like light
@@ -504,14 +504,64 @@ Shader "HDRP/Sky/ExpanseSky"
       SAMPLE_TEXTURE2D_LOD(_CloudCoverageTable, s_linear_clamp_sampler, base_uvw.xz, 0).xyz;
 
     float lowFreqNoise = cloud_base_noise.x;
+    float coverage = dot(cloud_coverage, float3(1, 1, 1)/3.0);
+    float density = remap(lowFreqNoise, coverage, 1.0, 0.0, 1.0);
+
+    /* HACK: height gradient. Make parameterized. */
+    float heightGradient = base_uvw.y - 0.5;
+    if (heightGradient < 0) {
+      heightGradient = abs(heightGradient);
+      heightGradient = 0.5 - heightGradient;
+      heightGradient = saturate(50 * heightGradient);
+    } else {
+      heightGradient = abs(heightGradient);
+      heightGradient = 0.5 - heightGradient;
+      heightGradient = saturate(10 * heightGradient);
+    }
+    density = remap(density, 1-heightGradient, 1.0, 0.0, 1.0);
+
     float structureNoise = _structureNoiseBlendFactor * dot(cloud_base_noise.yzw, float3(1, 1, 1));
-    float density = dot(cloud_coverage, float3(1, 1, 1)/3.0) * remap(lowFreqNoise, structureNoise, 1.0, 0.0, 1.0);
+    density = remap(density, structureNoise, 1.0, 0.0, 1.0);
 
     float uberDetail = _detailNoiseBlendFactor * dot(cloud_detail_noise, float3(1, 1, 1));
     density = remap(density, uberDetail, 1.0, 0.0, 1.0);
 
-    float falloff = 1.0;//min(1.0, exp((_cloudFalloffRadius-distance)));
-    return max(0.0, falloff * _cloudDensity * density);
+    float falloff = min(1.0, exp((_cloudFalloffRadius-distance)));
+    return max(0.0, falloff * _cloudDensity * density); /* HACK: density hack x10. */
+  }
+
+  /* Sample cloud density textures at specified texture coordinates. */
+  float sampleCloudDensityLowFrequency(float3 base_uvw, float distance) {
+    /* Use LOD version of sampling function so that compiler doesn't have to
+     * unroll the loop. */
+    float4 cloud_base_noise =
+      SAMPLE_TEXTURE3D_LOD(_CloudBaseNoiseTable, s_linear_clamp_sampler, base_uvw, 0);
+    float3 cloud_coverage =
+      SAMPLE_TEXTURE2D_LOD(_CloudCoverageTable, s_linear_clamp_sampler, base_uvw.xz, 0).xyz;
+
+    float lowFreqNoise = cloud_base_noise.x;
+    float coverage = dot(cloud_coverage, float3(1, 1, 1)/3.0);
+    float density = remap(lowFreqNoise, coverage, 1.0, 0.0, 1.0);
+
+    /* HACK: height gradient. Make parameterized. */
+    float heightGradient = base_uvw.y - 0.5;
+    if (heightGradient < 0) {
+      heightGradient = abs(heightGradient);
+      heightGradient = 0.5 - heightGradient;
+      heightGradient = saturate(50 * heightGradient);
+    } else {
+      heightGradient = abs(heightGradient);
+      heightGradient = 0.5 - heightGradient;
+      heightGradient = saturate(10 * heightGradient);
+    }
+    density = remap(density, 1-heightGradient, 1.0, 0.0, 1.0);
+
+    /* Just use lowest frequency structure noise. */
+    float structureNoise = _structureNoiseBlendFactor * dot(cloud_base_noise.yzw, float3(1, 1, 1));
+    density = remap(density, structureNoise, 1.0, 0.0, 1.0);
+
+    float falloff = min(1.0, exp((_cloudFalloffRadius-distance)));
+    return max(0.0, falloff * _cloudDensity * density); /* HACK: density hack x10. */
   }
 
   /* First number is entry t, second number is exit t. If entry t is
@@ -593,6 +643,7 @@ Shader "HDRP/Sky/ExpanseSky"
 
   /* Compute cloud transmittance from optical depth and absorption. */
   float cloudTransmittance(float opticalDepth, float absorption) {
+    // return saturate(exp(-absorption * opticalDepth));
     return saturate(max(exp(-absorption * opticalDepth), 0.7 * exp(-0.25 * absorption * opticalDepth)));
   }
 
@@ -608,12 +659,11 @@ Shader "HDRP/Sky/ExpanseSky"
       /* We didn't hit the cloud volume. */
       return float4(0, 0, 0, 1);
     }
-    //
-    intersections.y = min(5 * _cloudFalloffRadius, intersections.y);
-    // intersections.x = min(1 * _cloudFalloffRadius, intersections.x);
-    if (intersections.x > 5 * _cloudFalloffRadius) {
-      return float4(0, 0, 0, 1);
-    }
+
+    // intersections.y = min(5 * _cloudFalloffRadius, intersections.y);
+    // if (intersections.x > 5 * _cloudFalloffRadius) {
+    //   return float4(0, 0, 0, 1);
+    // }
 
     float3 startPoint = O + intersections.x * d;
     float3 endPoint = O + intersections.y * d;
@@ -621,10 +671,9 @@ Shader "HDRP/Sky/ExpanseSky"
     float pathLength = length(endPoint - startPoint);
 
     /* For viewing noise textures only. */
-    bool cloudsDebug = false;
     /* TODO: configurable. */
+    bool cloudsDebug = false;
     if (cloudsDebug) {
-        /* Accumulate optical depth. */
         float densityAttenuation = 1.0;
         float densityAttenThreshold = 0.20;
         if (d.y < densityAttenThreshold) {
@@ -637,152 +686,105 @@ Shader "HDRP/Sky/ExpanseSky"
     }
 
     float t = 0.0; /* Distance we have marched so far. */
-    float dt = _cloudDetailMarchFraction; /* March interval. */
-
-    /* Do a test to see if we are in a dense area and set our step size
-     * accordingly. */
-    float3 cloud_UV_base = mapCloudUV(startPoint, yExtent, _cloudTextureAngularRange, 1, 1);
-    float3 cloud_UV_detail = mapCloudUV(startPoint, yExtent, _cloudTextureAngularRange, 10, 10); /* HACK: 10's here. */
-    float cloud_density = sampleCloudDensity(cloud_UV_base, cloud_UV_detail, length(startPoint - O));
-
-    float cloud_optical_depth = 0.0;
+    float dt = _cloudCoarseMarchFraction; /* March interval. */
+    int numStepsLowDensity = 0;
+    float cloudOpticalDepth = 0.0;  /* Accumulated optical depth. */
+    float cloudAlpha = 1.0; /* Accumulated alpha value. */
+    float3 cloudLighting = float3(0, 0, 0); /* Accumulated lighting. */
+    float3 atmosphericBlendFactor = float3(-1, -1, -1);
+    float cloud_density = 1.0; /* For determining step size---start out at one to force detail step. */
     while (t < 1.0) {
+      /* Modify step size. */
+      if (cloud_density > 0.1 * _cloudDensity) {
+        dt = _cloudDetailMarchFraction;
+        numStepsLowDensity = 0;
+      } else {
+        if (numStepsLowDensity == 9) {
+          dt = _cloudCoarseMarchFraction;
+          numStepsLowDensity = 0;
+        } else {
+          numStepsLowDensity++;
+        }
+      }
+      dt = min(1 - t, dt);
       /* Generate sample point. */
       float sampleT = pathLength * (t + 0.5 * dt);
-      float3 samplePoint = O + sampleT * d;
+      float3 samplePoint = startPoint + sampleT * d;
       float ds = pathLength * dt;
 
       /* Sample the density at the sample point. */
-      cloud_UV_base = mapCloudUV(samplePoint, yExtent, _cloudTextureAngularRange, 1, 1);
-      cloud_UV_detail = mapCloudUV(samplePoint, yExtent, _cloudTextureAngularRange, 10, 10);
+      float3 cloud_UV_base = mapCloudUV(samplePoint, yExtent, _cloudTextureAngularRange, 1, 1);
+      float3 cloud_UV_detail = mapCloudUV(samplePoint, yExtent, _cloudTextureAngularRange, 10, 10);
       cloud_density = sampleCloudDensity(cloud_UV_base, cloud_UV_detail, length(samplePoint - O));
 
-      /* Accumulate marched distance. */
-      t += dt;
-
-      /* Accumulate optical depth. */
+      /* Attenuate density according to curve. */
       float densityAttenuation = 1.0;
       float densityAttenThreshold = 0.25;
       if (d.y < densityAttenThreshold) {
         densityAttenuation = exp(15 * (d.y - densityAttenThreshold));
       }
 
-      cloud_optical_depth += densityAttenuation * cloud_density * ds;
+      /* Accumulate optical depth. */
+      cloud_density *= densityAttenuation;
+      cloudOpticalDepth += cloud_density * ds;
+
+      /* Accumulate marched distance. */
+      t += dt;
+
+      /* Accumulate alpha. */
+      float alphaTransmittance = saturate(cloudTransmittance(cloud_density * ds, 1));
+      cloudAlpha *= alphaTransmittance;
+
+      /* Light the cloud, if our density is non-zero. */
+      if (cloud_density > 0) {
+        float densityEstimate = 0.0;
+
+        float singleScatterStepSize = pathLength * dt * 1;
+        float3 L = -normalize(_DirectionalLightDatas[0].forward.xyz);
+        for (int i = 0; i < _numCloudSingleScatteringSamples; i++) {
+          /* Cone sample by adding a random offset. HACK: not really cone sample. */
+          float3 coneSample = L * i * singleScatterStepSize;
+          // coneSample += 10 * singleScatterStepSize * random_3_3(coneSample);
+          float3 lightSamplePoint = samplePoint + coneSample;
+          /* Sample the density at the sample point. */
+          float3 light_UV_base = mapCloudUV(lightSamplePoint, yExtent, _cloudTextureAngularRange, 1, 1);
+          float lowDensitySample = sampleCloudDensityLowFrequency(light_UV_base, length(lightSamplePoint - O));
+          densityEstimate += dt * lowDensitySample;
+        }
+
+        float lowDensitySampleBase = sampleCloudDensityLowFrequency(cloud_UV_base, length(samplePoint - O));
+        float depthProbability = pow(lowDensitySampleBase/_cloudDensity, 2);
+
+        /* Accumulate cloud lighting. */
+        cloudLighting += depthProbability * ds * cloud_density * (cloudAlpha);
+      }
+
+      /* Compute transmittance and write depth if we are above 0.5 and
+       * haven't already written depth. */
+      if (atmosphericBlendFactor.x < 0) {
+        float depthTestTransmittance = saturate(cloudTransmittance(cloudOpticalDepth * (1/t), 1));
+        if ((1-cloudAlpha) >= 0.5) {
+          /* HACK: should use atmospheric model, but this is just easier. */
+          float dist = length(O - samplePoint);
+          atmosphericBlendFactor = saturate(1 - 1/(1 + exp((-dist/5000)+4)));
+        }
+      }
     }
 
-    return float4(0, 0, 0, saturate(cloudTransmittance(cloud_optical_depth, 1e-6)));
-    /* Compute cloud volume hit points. */
-    // float2 x_extent = float2(-15000.0, 15000.0);
-    // float2 y_extent = float2(1000.0, 4500.0) + _planetRadius; /* HACK: should be 1000-8000 with diff layers. */
-    // float2 z_extent = float2(-15000.0, 15000.0);
-    //
-    // float2 intersections = intersectCloudVolume(O, d, x_extent, y_extent, z_extent);
-    //
-    // if (floatLT(intersections.x, 0.0) && floatLT(intersections.y, 0.0)) {
-    //   /* We didn't hit the cloud volume. */
-    //   return float4(0, 0, 0, 1);
-    // }
-    //
-    // float3 startPoint = O;
-    // float3 endPoint = O + d * intersections.y;
-    // if (floatGT(intersections.x, 0)) {
-    //   /* If we have an entry point, that's where we'll start the ray
-    //    * marching. Otherwise, we'll start it at the origin point, O. */
-    //   startPoint = O + d * intersections.x;
-    // }
-    //
-    // /* Total distance we cover. */
-    // float t_hit = length(endPoint - startPoint);
-    //
-    // bool cloudsDebug = false;
-    // /* TODO: configurable. */
-    // if (cloudsDebug) {
-    //     float3 cloud_UV_base = mapCloudUV(startPoint, x_extent, y_extent, z_extent, _cloudTextureAngularRange, 1);
-    //     float3 cloud_UV_detail = mapCloudUV(startPoint, x_extent, y_extent, z_extent, _cloudTextureAngularRange * 0.04, 100);
-    //     float cloud_density = min(1.0, exp((10000.0-length(startPoint - O))/2500)) * sampleCloudDensity(cloud_UV_base, cloud_UV_detail);
-    //
-    //     return float4(cloud_density, cloud_density, cloud_density, 1);
-    // }
-    //
-    // /* Ray march cloud volume. */
-    // float3 cloud_in_scattering = float3(0, 0, 0);
-    // float cloud_optical_depth = 0.0;
-    // float cloud_scattering_coefficient = 1e-6;
-    // float cloud_absorption_coefficient = 1e-6;
-    // float raymarchDist = 0.01;
-    // float marchedDist = 0.0;
-    // // for (int i = 0; i < _numCloudTransmittanceSamples; i++) {
-    // while (floatLT(marchedDist, 1.0)) {
-    //   /* Generate the sample point. */
-    //   float2 t_ds = t_hit * generateLinearSampleFromIndex(int(marchedDist*100.0), _numCloudTransmittanceSamples);//float2(marchedDist + (raymarchDist/2.0), raymarchDist);
-    //   float t = t_ds.x;
-    //   float ds = t_ds.y;
-    //   float3 samplePoint = startPoint + t * d;
-    //   marchedDist += raymarchDist;
-    //
-    //   /* Sample the cloud density at the sample point. */
-    //   float3 cloud_UV_base = mapCloudUV(samplePoint, x_extent, y_extent, z_extent, _cloudTextureAngularRange, 1);
-    //   float3 cloud_UV_detail = mapCloudUV(samplePoint, x_extent, y_extent, z_extent, _cloudTextureAngularRange * 0.04, 100);
-    //   float cloud_density = min(1.0, exp((10000.0-length(startPoint - O)) / 5000)) * sampleCloudDensity(cloud_UV_base, cloud_UV_detail);
-    //
-    //   /* Accumulate transmittance. */
-    //   cloud_optical_depth += cloud_density * ds;
-    //
-    //   /* Estimate transmittance to the light. HACK: just sun right now. */
-    //   DirectionalLightData light = _DirectionalLightDatas[0];
-    //   float3 L = -normalize(light.forward.xyz);
-    //   float3 lightColor = light.color;
-    //
-    //   /* Ensure that there is no occlusion from the ground. */
-    //   float3 groundIntersectionData = intersectSphere(samplePoint, L, _planetRadius);
-    //   bool groundHit = (groundIntersectionData.z > 0) && (groundIntersectionData.x > 0 || groundIntersectionData.y > 0);
-    //   if (!groundHit) {
-    //     /* Find exit point. */
-    //     float light_exit_t = intersectCloudVolume(samplePoint, L, x_extent, y_extent, z_extent).y;
-    //
-    //     /* Perform the integration. */
-    //     float light_optical_depth = 0;
-    //     for (int j = 0; j < _numCloudSingleScatteringSamples; j++) {
-    //       /* Generate the sample point. */
-    //       float2 t_ds_light = light_exit_t * generateLinearSampleFromIndex(j, _numCloudSingleScatteringSamples);
-    //       float t_light = t_ds_light.x;
-    //       float ds_light = t_ds_light.y;
-    //       float3 samplePointLight = samplePoint + t_light * L;
-    //
-    //       float3 cloud_light_UV_base = mapCloudUV(samplePointLight, x_extent, y_extent, z_extent, _cloudTextureAngularRange, 1);
-    //       float3 cloud_light_UV_detail = mapCloudUV(samplePointLight, x_extent, y_extent, z_extent, _cloudTextureAngularRange * 0.01, 100);
-    //       float cloud_light_density = min(1.0, exp(10000.0-length(startPoint - O) / 5000)) * sampleCloudDensity(cloud_light_UV_base, cloud_light_UV_detail);
-    //
-    //       light_optical_depth += cloud_light_density * ds_light;
-    //     }
-    //     /* Accumulate transmittance. */
-    //     float r = length(samplePoint);
-    //     float mu = clampCosine(dot(normalize(samplePoint), L));
-    //
-    //     /* Perform the transmittance table lookup to attenuate direct lighting. */
-    //     float2 transmittanceUV = mapTransmittanceCoordinates(r,
-    //       mu, _atmosphereRadius, _planetRadius, light_exit_t, false);
-    //     float3 T_atmo = SAMPLE_TEXTURE2D_LOD(_TransmittanceTable, s_linear_clamp_sampler,
-    //       transmittanceUV, 0).xyz;
-    //
-    //     float T_oToSample = exp(-cloud_absorption_coefficient * cloud_optical_depth);
-    //     float T_sampleToLight = exp(-cloud_absorption_coefficient * light_optical_depth);
-    //
-    //     float T_oToLight = T_oToSample * T_sampleToLight;
-    //
-    //     cloud_in_scattering += T_atmo * T_oToLight * ds * cloud_density;
-    //   }
-    // }
-    //
-    // DirectionalLightData light = _DirectionalLightDatas[0];
-    // float3 L = -normalize(light.forward.xyz);
-    // float3 lightColor = light.color;
-    // float cloudPhase = computeCloudPhase(dot(L, d),
-    //   _cloudForwardScatteringCoefficient, 0.29, 0.75); /* HACK: mix hardcoded. */
-    // cloud_in_scattering *= cloud_scattering_coefficient * lightColor * cloudPhase;
-    //
-    // return float4(cloud_in_scattering,
-    //   saturate(max(exp(-cloud_absorption_coefficient * cloud_optical_depth), 0.7 * exp(-0.25 * cloud_absorption_coefficient * cloud_optical_depth))));
+    float cloudT = saturate(cloudTransmittance(cloudOpticalDepth, 1));
+    float3 cloudColor = cloudLighting * _DirectionalLightDatas[0].color;
+    /* Compute phase. */
+    float3 L = -normalize(_DirectionalLightDatas[0].forward.xyz);
+    /* HACK: blend is hardcoded. */
+    float cloudPhase = computeCloudPhase(dot(L, d), _cloudForwardScatteringCoefficient, _cloudBackwardScatteringCoefficient, 0.5);
+    cloudColor *= cloudPhase;
+
+    if (atmosphericBlendFactor.x < 0) {
+      /* Our clouds aren't very dense at all. Blend to full cloud. */
+      atmosphericBlendFactor = float3(1, 1, 1);
+    }
+
+    return float4(cloudColor.x, cloudColor.y, 1-cloudAlpha, saturate(atmosphericBlendFactor.x));
   }
 
   float3 RenderSky(Varyings input, float exposure, float2 jitter)
@@ -832,8 +834,9 @@ Shader "HDRP/Sky/ExpanseSky"
 
     /* HACKY CLOUDS STUFF. HACK. */
     float4 cloud_color_and_t = shadeClouds(O, d);
-    float cloud_T = cloud_color_and_t.w;
-    float3 cloudColor = cloud_color_and_t.xyz;
+    float atmosphericBlend = cloud_color_and_t.w;
+    float cloudAlpha = cloud_color_and_t.z;
+    float cloudColor = cloud_color_and_t.x;
 
     /* TODO: configurable. */
     bool cloudsDebug = false;
@@ -855,9 +858,12 @@ Shader "HDRP/Sky/ExpanseSky"
         intersection.groundHit);
     }
 
+    float3 sky = finalDirectLighting + skyColor + nightAirScattering + lightPollution;
+    float3 clouds = float3(cloudColor, cloudColor, cloudColor);
+    float3 skyAndClouds = sky * (1-cloudAlpha) + cloudAlpha * (sky * (1-atmosphericBlend) + (atmosphericBlend) * cloudColor);
+
     float dither = 1.0 + _ditherAmount * (0.5 - random(d.xy));
-    return dither * exposure * ((finalDirectLighting
-      + skyColor + nightAirScattering + lightPollution) * cloud_T + cloudColor);
+    return dither * exposure * skyAndClouds;
   }
 
   float4 FragBaking(Varyings input) : SV_Target

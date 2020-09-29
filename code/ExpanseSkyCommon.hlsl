@@ -981,8 +981,9 @@ float computeAerosolPhase(float dot_L_d, float g) {
     / ((2.0 + g * g) * pow(abs(1.0 + g * g - 2.0 * g * dot_L_d), 1.5));
 }
 
-float computeCloudPhase(float dot_L_d, float g0, float g1, float w) {
-  return lerp(computeAerosolPhase(dot_L_d, g0), computeAerosolPhase(dot_L_d, g1), w);
+float computeCloudPhase(float dot_L_d, float g0, float g1, float silverIntensity) {
+  /**/
+  return max(computeAerosolPhase(dot_L_d, g0), silverIntensity * computeAerosolPhase(dot_L_d, 0.99-g1));
 }
 
 /******************************************************************************/
