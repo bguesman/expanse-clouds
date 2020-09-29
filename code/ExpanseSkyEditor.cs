@@ -84,33 +84,61 @@ class ExpanseSkyEditor : SkySettingsEditor
     SerializedDataParameter useAntiAliasing;
     SerializedDataParameter ditherAmount;
 
-    /* Clouds. */
-    SerializedDataParameter cloudDensity;
-    SerializedDataParameter cloudForwardScatteringCoefficient;
-    SerializedDataParameter cloudBackwardScatteringCoefficient;
-    SerializedDataParameter numberOfCloudTransmittanceSamples;
-    SerializedDataParameter numberOfCloudSingleScatteringSamples;
-
-    SerializedDataParameter cloudCoarseMarchFraction;
-    SerializedDataParameter cloudDetailMarchFraction;
+    /* Clouds geometry. */
     SerializedDataParameter cloudVolumeLowerRadialBoundary;
     SerializedDataParameter cloudVolumeUpperRadialBoundary;
     SerializedDataParameter cloudTextureAngularRange;
-    SerializedDataParameter cloudFalloffRadius;
     SerializedDataParameter cloudUOffset;
     SerializedDataParameter cloudVOffset;
     SerializedDataParameter cloudWOffset;
-    SerializedDataParameter structureNoiseBlendFactor;
-    SerializedDataParameter detailNoiseBlendFactor;
+
+    /* Clouds lighting. */
+    SerializedDataParameter cloudDensity;
+    SerializedDataParameter cloudFalloffRadius;
+    SerializedDataParameter densityAttenuationThreshold;
+    SerializedDataParameter densityAttenuationMultiplier;
+    SerializedDataParameter cloudForwardScattering;
+    SerializedDataParameter cloudSilverSpread;
+    SerializedDataParameter silverIntensity;
+    SerializedDataParameter depthProbabilityOffset;
+    SerializedDataParameter depthProbabilityMin;
+    SerializedDataParameter depthProbabilityMax;
+    SerializedDataParameter atmosphericBlendDistance;
+    SerializedDataParameter atmosphericBlendBias;
+
+    /* Clouds sampling. */
+    SerializedDataParameter numCloudTransmittanceSamples;
+    SerializedDataParameter numCloudSSSamples;
+    SerializedDataParameter cloudCoarseMarchFraction;
+    SerializedDataParameter cloudDetailMarchFraction;
+    SerializedDataParameter numZeroStepsBeforeCoarseMarch;
+
+
+    /* Clouds noise. */
     SerializedDataParameter basePerlinOctaves;
     SerializedDataParameter basePerlinOffset;
     SerializedDataParameter basePerlinScaleFactor;
     SerializedDataParameter baseWorleyOctaves;
     SerializedDataParameter baseWorleyScaleFactor;
+    SerializedDataParameter baseWorleyBlendFactor;
     SerializedDataParameter structureOctaves;
     SerializedDataParameter structureScaleFactor;
+    SerializedDataParameter structureNoiseBlendFactor;
     SerializedDataParameter detailOctaves;
     SerializedDataParameter detailScaleFactor;
+    SerializedDataParameter detailNoiseBlendFactor;
+    SerializedDataParameter detailNoiseTile;
+    SerializedDataParameter heightGradientLowStart;
+    SerializedDataParameter heightGradientLowEnd;
+    SerializedDataParameter heightGradientHighStart;
+    SerializedDataParameter heightGradientHighEnd;
+    SerializedDataParameter coverageOctaves;
+    SerializedDataParameter coverageOffset;
+    SerializedDataParameter coverageScaleFactor;
+    SerializedDataParameter coverageBlendFactor;
+
+    /* Clouds debug. */
+    SerializedDataParameter cloudsDebug;
 
     public override void OnEnable()
     {
@@ -199,10 +227,10 @@ class ExpanseSkyEditor : SkySettingsEditor
 
         /* Clouds. */
         cloudDensity = Unpack(o.Find(x => x.cloudDensity));
-        cloudForwardScatteringCoefficient = Unpack(o.Find(x => x.cloudForwardScatteringCoefficient));
-        cloudBackwardScatteringCoefficient = Unpack(o.Find(x => x.cloudBackwardScatteringCoefficient));
-        numberOfCloudTransmittanceSamples = Unpack(o.Find(x => x.numberOfCloudTransmittanceSamples));
-        numberOfCloudSingleScatteringSamples = Unpack(o.Find(x => x.numberOfCloudSingleScatteringSamples));
+        cloudForwardScattering = Unpack(o.Find(x => x.cloudForwardScattering));
+        cloudSilverSpread = Unpack(o.Find(x => x.cloudSilverSpread));
+        numCloudTransmittanceSamples = Unpack(o.Find(x => x.numCloudTransmittanceSamples));
+        numCloudSSSamples = Unpack(o.Find(x => x.numCloudSSSamples));
 
         cloudCoarseMarchFraction = Unpack(o.Find(x => x.cloudCoarseMarchFraction));
         cloudDetailMarchFraction = Unpack(o.Find(x => x.cloudDetailMarchFraction));
@@ -224,6 +252,62 @@ class ExpanseSkyEditor : SkySettingsEditor
         structureScaleFactor = Unpack(o.Find(x => x.structureScaleFactor));
         detailOctaves = Unpack(o.Find(x => x.detailOctaves));
         detailScaleFactor = Unpack(o.Find(x => x.detailScaleFactor));
+
+        /* Clouds geometry. */
+        cloudVolumeLowerRadialBoundary = Unpack(o.Find(x => x.cloudVolumeLowerRadialBoundary));
+        cloudVolumeUpperRadialBoundary = Unpack(o.Find(x => x.cloudVolumeUpperRadialBoundary));
+        cloudTextureAngularRange = Unpack(o.Find(x => x.cloudTextureAngularRange));
+        cloudUOffset = Unpack(o.Find(x => x.cloudUOffset));
+        cloudVOffset = Unpack(o.Find(x => x.cloudVOffset));
+        cloudWOffset = Unpack(o.Find(x => x.cloudWOffset));
+
+        /* Clouds lighting. */
+        cloudDensity = Unpack(o.Find(x => x.cloudDensity));
+        cloudFalloffRadius = Unpack(o.Find(x => x.cloudFalloffRadius));
+        densityAttenuationThreshold = Unpack(o.Find(x => x.densityAttenuationThreshold));
+        densityAttenuationMultiplier = Unpack(o.Find(x => x.densityAttenuationMultiplier));
+        cloudForwardScattering = Unpack(o.Find(x => x.cloudForwardScattering));
+        cloudSilverSpread = Unpack(o.Find(x => x.cloudSilverSpread));
+        silverIntensity = Unpack(o.Find(x => x.silverIntensity));
+        depthProbabilityOffset = Unpack(o.Find(x => x.depthProbabilityOffset));
+        depthProbabilityMin = Unpack(o.Find(x => x.depthProbabilityMin));
+        depthProbabilityMax = Unpack(o.Find(x => x.depthProbabilityMax));
+        atmosphericBlendDistance = Unpack(o.Find(x => x.atmosphericBlendDistance));
+        atmosphericBlendBias = Unpack(o.Find(x => x.atmosphericBlendBias));
+
+        /* Clouds sampling. */
+        numCloudTransmittanceSamples = Unpack(o.Find(x => x.numCloudTransmittanceSamples));
+        numCloudSSSamples = Unpack(o.Find(x => x.numCloudSSSamples));
+        cloudCoarseMarchFraction = Unpack(o.Find(x => x.cloudCoarseMarchFraction));
+        cloudDetailMarchFraction = Unpack(o.Find(x => x.cloudDetailMarchFraction));
+        numZeroStepsBeforeCoarseMarch = Unpack(o.Find(x => x.numZeroStepsBeforeCoarseMarch));
+
+
+        /* Clouds noise. */
+        basePerlinOctaves = Unpack(o.Find(x => x.basePerlinOctaves));
+        basePerlinOffset = Unpack(o.Find(x => x.basePerlinOffset));
+        basePerlinScaleFactor = Unpack(o.Find(x => x.basePerlinScaleFactor));
+        baseWorleyOctaves = Unpack(o.Find(x => x.baseWorleyOctaves));
+        baseWorleyScaleFactor = Unpack(o.Find(x => x.baseWorleyScaleFactor));
+        baseWorleyBlendFactor = Unpack(o.Find(x => x.baseWorleyBlendFactor));
+        structureOctaves = Unpack(o.Find(x => x.structureOctaves));
+        structureScaleFactor = Unpack(o.Find(x => x.structureScaleFactor));
+        structureNoiseBlendFactor = Unpack(o.Find(x => x.structureNoiseBlendFactor));
+        detailOctaves = Unpack(o.Find(x => x.detailOctaves));
+        detailScaleFactor = Unpack(o.Find(x => x.detailScaleFactor));
+        detailNoiseBlendFactor = Unpack(o.Find(x => x.detailNoiseBlendFactor));
+        detailNoiseTile = Unpack(o.Find(x => x.detailNoiseTile));
+        heightGradientLowStart = Unpack(o.Find(x => x.heightGradientLowStart));
+        heightGradientLowEnd = Unpack(o.Find(x => x.heightGradientLowEnd));
+        heightGradientHighStart = Unpack(o.Find(x => x.heightGradientHighStart));
+        heightGradientHighEnd = Unpack(o.Find(x => x.heightGradientHighEnd));
+        coverageOctaves = Unpack(o.Find(x => x.coverageOctaves));
+        coverageOffset = Unpack(o.Find(x => x.coverageOffset));
+        coverageScaleFactor = Unpack(o.Find(x => x.coverageScaleFactor));
+        coverageBlendFactor = Unpack(o.Find(x => x.coverageBlendFactor));
+
+        /* Clouds debug. */
+        cloudsDebug = Unpack(o.Find(x => x.cloudsDebug));
     }
 
     public override void OnInspectorGUI()
@@ -338,32 +422,66 @@ class ExpanseSkyEditor : SkySettingsEditor
       /* Clouds. */
       UnityEditor.EditorGUILayout.LabelField("", titleStyle);
       UnityEditor.EditorGUILayout.LabelField("Clouds (Experimental)", titleStyle);
-      PropertyField(cloudDensity);
-      PropertyField(cloudForwardScatteringCoefficient);
-      PropertyField(cloudBackwardScatteringCoefficient);
-      PropertyField(numberOfCloudTransmittanceSamples);
-      PropertyField(numberOfCloudSingleScatteringSamples);
-
-      PropertyField(cloudCoarseMarchFraction);
-      PropertyField(cloudDetailMarchFraction);
+      UnityEditor.EditorGUILayout.LabelField("", subtitleStyle);
+      UnityEditor.EditorGUILayout.LabelField("Geometry", subtitleStyle);
       PropertyField(cloudVolumeLowerRadialBoundary);
       PropertyField(cloudVolumeUpperRadialBoundary);
       PropertyField(cloudTextureAngularRange);
-      PropertyField(cloudFalloffRadius);
       PropertyField(cloudUOffset);
       PropertyField(cloudVOffset);
       PropertyField(cloudWOffset);
-      PropertyField(structureNoiseBlendFactor);
-      PropertyField(detailNoiseBlendFactor);
+
+      UnityEditor.EditorGUILayout.LabelField("", subtitleStyle);
+      UnityEditor.EditorGUILayout.LabelField("Lighting", subtitleStyle);
+      PropertyField(cloudDensity);
+      PropertyField(cloudFalloffRadius);
+      PropertyField(densityAttenuationThreshold);
+      PropertyField(densityAttenuationMultiplier);
+      PropertyField(cloudForwardScattering);
+      PropertyField(cloudSilverSpread);
+      PropertyField(silverIntensity);
+      PropertyField(depthProbabilityOffset);
+      PropertyField(depthProbabilityMin);
+      PropertyField(depthProbabilityMax);
+      PropertyField(atmosphericBlendDistance);
+      PropertyField(atmosphericBlendBias);
+
+      UnityEditor.EditorGUILayout.LabelField("", subtitleStyle);
+      UnityEditor.EditorGUILayout.LabelField("Sampling", subtitleStyle);
+      PropertyField(numCloudTransmittanceSamples);
+      PropertyField(numCloudSSSamples);
+      PropertyField(cloudCoarseMarchFraction);
+      PropertyField(cloudDetailMarchFraction);
+      PropertyField(numZeroStepsBeforeCoarseMarch);
+
+
+      UnityEditor.EditorGUILayout.LabelField("", subtitleStyle);
+      UnityEditor.EditorGUILayout.LabelField("Noise", subtitleStyle);
       PropertyField(basePerlinOctaves);
       PropertyField(basePerlinOffset);
       PropertyField(basePerlinScaleFactor);
       PropertyField(baseWorleyOctaves);
       PropertyField(baseWorleyScaleFactor);
+      PropertyField(baseWorleyBlendFactor);
       PropertyField(structureOctaves);
       PropertyField(structureScaleFactor);
+      PropertyField(structureNoiseBlendFactor);
       PropertyField(detailOctaves);
       PropertyField(detailScaleFactor);
+      PropertyField(detailNoiseBlendFactor);
+      PropertyField(detailNoiseTile);
+      PropertyField(heightGradientLowStart);
+      PropertyField(heightGradientLowEnd);
+      PropertyField(heightGradientHighStart);
+      PropertyField(heightGradientHighEnd);
+      PropertyField(coverageOctaves);
+      PropertyField(coverageOffset);
+      PropertyField(coverageScaleFactor);
+      PropertyField(coverageBlendFactor);
+
+      UnityEditor.EditorGUILayout.LabelField("", subtitleStyle);
+      UnityEditor.EditorGUILayout.LabelField("Debug", subtitleStyle);
+      PropertyField(cloudsDebug);
 
       base.CommonSkySettingsGUI();
     }

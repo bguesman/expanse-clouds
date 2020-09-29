@@ -43,27 +43,26 @@ int _numberOfMultipleScatteringSamples;
 int _numberOfMultipleScatteringAccumulationSamples;
 bool _useImportanceSampling;
 
-/* Clouds. */
-float _cloudCoarseMarchFraction;
-float _cloudDetailMarchFraction;
+/* Clouds geometry. */
 float _cloudVolumeLowerRadialBoundary;
 float _cloudVolumeUpperRadialBoundary;
 float _cloudTextureAngularRange;
-float _cloudFalloffRadius;
-float _cloudUOffset;
-float _cloudVOffset;
-float _cloudWOffset;
-float _structureNoiseBlendFactor;
-float _detailNoiseBlendFactor;
+
+/* Clouds noise. */
 float4 _basePerlinOctaves;
 float _basePerlinOffset;
 float _basePerlinScaleFactor;
 float4 _baseWorleyOctaves;
 float _baseWorleyScaleFactor;
+float _baseWorleyBlendFactor;
 float4 _structureOctaves;
 float _structureScaleFactor;
 float4 _detailOctaves;
 float _detailScaleFactor;
+float _detailNoiseTile;
+float4 _coverageOctaves;
+float _coverageOffset;
+float _coverageScaleFactor;
 
 /* Easier to type... */
 #define g _aerosolAnisotropy
@@ -74,11 +73,6 @@ float _detailScaleFactor;
 #define _ozoneCoefficientsF3 _ozoneCoefficients.xyz
 #define _groundTintF3 _groundTint.xyz
 #define _lightPollutionTintF3 _lightPollutionTint.xyz
-
-/* Do the same with the noises. */
-#define _baseWorleyOctavesF3 _baseWorleyOctaves.xyz
-#define _structureOctavesF3 _structureOctaves.xyz
-#define _detailOctavesF3 _detailOctaves.xyz
 
 /* Set up a sampler for the cubemaps. */
 //SAMPLER(SAMPLER_CUBEMAP);
@@ -330,121 +324,38 @@ float perlin(float3 uvw, float3 grid_res, float3 seed) {
 }
 
 float worley(float3 uv, float3 grid_res, float3x3 rotation, float3 seed1, float3 seed2, float3 seed3) {
-
-  /* Translate to origin and rotate uv. */
-  // uv = (uv - 0.5);
-  uv = mul(rotation, uv); //float3(cos(PI/4)*uv.x + sin(PI/4)*uv.z, uv.y, -sin(PI/4)*uv.x + cos(PI/4)*uv.z);
-  /* Get where we are in the current grid cell. */
+  /* Tile coordinates. Result is between 0 and 1. */
+  /* Experiment: cut grid res in half. */
+  grid_res /= 2.0;
   float3 f_uv = frac(grid_res * uv);
 
-  /* Use coordinates of top left cell to determine random placement. */
+  /* Use coordinates of four points in the cell to determine random placements. */
   float3 tl = floor(grid_res * uv);
-
-  /* Check if it is in bounds by first transforming it back to the unit
-   * cube and then checking against the unit boundaries. */
-  /* TRANSPOSE! of rotation. this could a place where it goes wrong. */
-  // float3 tl_transformed = float3(cos(PI/4)*tl.x - sin(PI/4)*tl.z,
-  //   tl.y, sin(PI/4)*tl.x + cos(PI/4)*tl.z);
-  float3 tl_transformed = mul(transpose(rotation), tl);
-  if (tl_transformed.x > grid_res.x) {
-    tl_transformed.x -= grid_res.x;
-  } else if (tl_transformed.x < 0) {
-    tl_transformed.x += grid_res.x;
+  float d = FLT_MAX; /* Large number. */
+  float3 offsets[4] = {float3(0, 0, 0), float3(0, 0.5, 0), float3(0.5, 0.5, 0), float3(0, 0.5, 0.5)};
+  for (int r = 0; r < 4; r++) {
+    float3 p = 0.5 * (random_3_3_seeded(tl + offsets[r], seed1, seed2, seed3) + 1);
+    /* Compute distance to the point. */
+    d = min(d, length(f_uv - p));
   }
-  if (tl_transformed.y > grid_res.y) {
-    tl_transformed.y -= grid_res.y;
-  } else if (tl_transformed.y < 0) {
-    tl_transformed.y += grid_res.y;
-  }
-  if (tl_transformed.z > grid_res.z) {
-    tl_transformed.z -= grid_res.z;
-  } else if (tl_transformed.z < 0) {
-    tl_transformed.z += grid_res.z;
-  }
-  /* REGULAR of rotation. this could a place where it goes wrong. */
-  // tl_transformed = float3(cos(PI/4)*tl_transformed.x + sin(PI/4)*tl_transformed.z,
-  //   tl_transformed.y, -sin(PI/4)*tl_transformed.x + cos(PI/4)*tl_transformed.z);
-  tl_transformed = mul(rotation, tl_transformed);
-
-  // if (abs(tl_transformed.x - floor(tl_transformed.x)) > 0.01) {
-  //   return 1000;
-  // }
-
-  float3 p = 0.5 * (random_3_3_seeded(tl_transformed, seed1, seed2, seed3) + 1);
-
-  /* Compute distance to the point. */
-  float d = dot(f_uv - p, f_uv - p);
 
   for (int i = -1; i <= 1; i++) {
     for (int j = -1; j <= 1; j++) {
       for (int k = -1; k <= 1; k++) {
         if (!(i == 0 && j == 0 && k == 0)) {
           float3 tl_neighbor = tl + float3(i, j, k);
-
-
-          /* Check if it is in bounds by first transforming it back to the unit
-           * cube and then checking against the unit boundaries. */
-          /* TRANSPOSE! of rotation. this could a place where it goes wrong. */
-          // float3 tl_neighbor_transformed = float3(cos(PI/4)*tl_neighbor.x - sin(PI/4)*tl_neighbor.z,
-          //   tl_neighbor.y, sin(PI/4)*tl_neighbor.x + cos(PI/4)*tl_neighbor.z);
-          float3 tl_neighbor_transformed = mul(transpose(rotation), tl_neighbor);
-          if (tl_neighbor_transformed.x > grid_res.x) {
-            tl_neighbor_transformed.x -= grid_res.x;
-          } else if (tl_neighbor_transformed.x < 0) {
-            tl_neighbor_transformed.x += grid_res.x;
+          /* Wraparound. */
+          float3 tl_neighbor_seed = tl_neighbor - grid_res * floor(tl_neighbor / grid_res);
+          for (int r = 0; r < 4; r++) {
+            float3 p_neighbor = (0.5 * (1 + random_3_3_seeded(tl_neighbor_seed + offsets[r], seed1, seed2, seed3))) + float3(i, j, k);
+            d = min(d, length(p_neighbor - f_uv));
           }
-          if (tl_neighbor_transformed.y > grid_res.y) {
-            tl_neighbor_transformed.y -= grid_res.y;
-          } else if (tl_neighbor_transformed.y < 0) {
-            tl_neighbor_transformed.y += grid_res.y;
-          }
-          if (tl_neighbor_transformed.z > grid_res.z) {
-            tl_neighbor_transformed.z -= grid_res.z;
-          } else if (tl_neighbor_transformed.z < 0) {
-            tl_neighbor_transformed.z += grid_res.z;
-          }
-          /* REGULAR of rotation. this could a place where it goes wrong. */
-          // tl_neighbor_transformed = float3(cos(PI/4)*tl_neighbor_transformed.x + sin(PI/4)*tl_neighbor_transformed.z,
-          //   tl_neighbor_transformed.y, -sin(PI/4)*tl_neighbor_transformed.x + cos(PI/4)*tl_neighbor_transformed.z);
-          tl_neighbor_transformed = mul(rotation, tl_neighbor_transformed);
-
-
-
-          // float3 tl_neighbor_seed = tl_neighbor - grid_res * floor(tl_neighbor / grid_res);
-          float3 p_neighbor = (0.5 * (1 + random_3_3_seeded(tl_neighbor_transformed, seed1, seed2, seed3))) + float3(i, j, k);
-          d = min(d, dot(p_neighbor - f_uv, p_neighbor - f_uv));
         }
       }
     }
   }
 
   return d;
-
-  /* Tile coordinates. Result is between 0 and 1. */
-  // float3 f_uv = frac(grid_res * uv);
-  //
-  // /* Use coordinates of top left cell to determine random placement. */
-  // float3 tl = floor(grid_res * uv);
-  // float3 p = 0.5 * (random_3_3_seeded(tl, seed1, seed2, seed3) + 1);
-  //
-  // /* Compute distance to the point. */
-  // float d = length(f_uv - p);
-  //
-  // for (int i = -1; i <= 1; i++) {
-  //   for (int j = -1; j <= 1; j++) {
-  //     for (int k = -1; k <= 1; k++) {
-  //       if (!(i == 0 && j == 0 && k == 0)) {
-  //         float3 tl_neighbor = tl + float3(i, j, k);
-  //         /* Wraparound. */
-  //         float3 tl_neighbor_seed = tl_neighbor - grid_res * floor(tl_neighbor / grid_res);
-  //         float3 p_neighbor = (0.5 * (1 + random_3_3_seeded(tl_neighbor_seed, seed1, seed2, seed3))) + float3(i, j, k);
-  //         d = min(d, length(p_neighbor - f_uv));
-  //       }
-  //     }
-  //   }
-  // }
-  //
-  // return d;
 }
 
 /******************************************************************************/

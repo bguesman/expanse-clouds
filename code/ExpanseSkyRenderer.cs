@@ -93,34 +93,60 @@ class ExpanseSkyRenderer : SkyRenderer
     public static readonly int _ViewMatrix1ID = Shader.PropertyToID("_ViewMatrix1");
     public static readonly int _PixelCoordToViewDirWS = Shader.PropertyToID("_PixelCoordToViewDirWS");
 
-    /* Clouds. */
-    public static readonly int _cloudDensityID = Shader.PropertyToID("_cloudDensity");
-    public static readonly int _cloudForwardScatteringCoefficientID = Shader.PropertyToID("_cloudForwardScatteringCoefficient");
-    public static readonly int _cloudBackwardScatteringCoefficientID = Shader.PropertyToID("_cloudBackwardScatteringCoefficient");
-    public static readonly int _numCloudTransmittanceSamplesID = Shader.PropertyToID("_numCloudTransmittanceSamples");
-    public static readonly int _numCloudSingleScatteringSamplesID = Shader.PropertyToID("_numCloudSingleScatteringSamples");
-
-    public static readonly int _cloudCoarseMarchFractionID = Shader.PropertyToID("_cloudCoarseMarchFraction");
-    public static readonly int _cloudDetailMarchFractionID = Shader.PropertyToID("_cloudDetailMarchFraction");
+    /* Clouds geometry. */
     public static readonly int _cloudVolumeLowerRadialBoundaryID = Shader.PropertyToID("_cloudVolumeLowerRadialBoundary");
     public static readonly int _cloudVolumeUpperRadialBoundaryID = Shader.PropertyToID("_cloudVolumeUpperRadialBoundary");
     public static readonly int _cloudTextureAngularRangeID = Shader.PropertyToID("_cloudTextureAngularRange");
-    public static readonly int _cloudFalloffRadiusID = Shader.PropertyToID("_cloudFalloffRadius");
     public static readonly int _cloudUOffsetID = Shader.PropertyToID("_cloudUOffset");
     public static readonly int _cloudVOffsetID = Shader.PropertyToID("_cloudVOffset");
     public static readonly int _cloudWOffsetID = Shader.PropertyToID("_cloudWOffset");
-    public static readonly int _structureNoiseBlendFactorID = Shader.PropertyToID("_structureNoiseBlendFactor");
-    public static readonly int _detailNoiseBlendFactorID = Shader.PropertyToID("_detailNoiseBlendFactor");
+
+    /* Clouds lighting. */
+    public static readonly int _cloudDensityID = Shader.PropertyToID("_cloudDensity");
+    public static readonly int _cloudFalloffRadiusID = Shader.PropertyToID("_cloudFalloffRadius");
+    public static readonly int _densityAttenuationThresholdID = Shader.PropertyToID("_densityAttenuationThreshold");
+    public static readonly int _densityAttenuationMultiplierID = Shader.PropertyToID("_densityAttenuationMultiplier");
+    public static readonly int _cloudForwardScatteringID = Shader.PropertyToID("_cloudForwardScattering");
+    public static readonly int _cloudSilverSpreadID = Shader.PropertyToID("_cloudSilverSpread");
+    public static readonly int _silverIntensityID = Shader.PropertyToID("_silverIntensity");
+    public static readonly int _depthProbabilityOffsetID = Shader.PropertyToID("_depthProbabilityOffset");
+    public static readonly int _depthProbabilityMinID = Shader.PropertyToID("_depthProbabilityMin");
+    public static readonly int _depthProbabilityMaxID = Shader.PropertyToID("_depthProbabilityMax");
+    public static readonly int _atmosphericBlendDistanceID = Shader.PropertyToID("_atmosphericBlendDistance");
+    public static readonly int _atmosphericBlendBiasID = Shader.PropertyToID("_atmosphericBlendBias");
+
+    /* Clouds sampling. */
+    public static readonly int _numCloudTransmittanceSamplesID = Shader.PropertyToID("_numCloudTransmittanceSamples");
+    public static readonly int _numCloudSSSamplesID = Shader.PropertyToID("_numCloudSSSamples");
+    public static readonly int _cloudCoarseMarchFractionID = Shader.PropertyToID("_cloudCoarseMarchFraction");
+    public static readonly int _cloudDetailMarchFractionID = Shader.PropertyToID("_cloudDetailMarchFraction");
+    public static readonly int _numZeroStepsBeforeCoarseMarchID = Shader.PropertyToID("_numZeroStepsBeforeCoarseMarch");
+
+    /* Clouds noise. */
     public static readonly int _basePerlinOctavesID = Shader.PropertyToID("_basePerlinOctaves");
     public static readonly int _basePerlinOffsetID = Shader.PropertyToID("_basePerlinOffset");
     public static readonly int _basePerlinScaleFactorID = Shader.PropertyToID("_basePerlinScaleFactor");
     public static readonly int _baseWorleyOctavesID = Shader.PropertyToID("_baseWorleyOctaves");
     public static readonly int _baseWorleyScaleFactorID = Shader.PropertyToID("_baseWorleyScaleFactor");
+    public static readonly int _baseWorleyBlendFactorID = Shader.PropertyToID("_baseWorleyBlendFactor");
     public static readonly int _structureOctavesID = Shader.PropertyToID("_structureOctaves");
     public static readonly int _structureScaleFactorID = Shader.PropertyToID("_structureScaleFactor");
+    public static readonly int _structureNoiseBlendFactorID = Shader.PropertyToID("_structureNoiseBlendFactor");
     public static readonly int _detailOctavesID = Shader.PropertyToID("_detailOctaves");
     public static readonly int _detailScaleFactorID = Shader.PropertyToID("_detailScaleFactor");
+    public static readonly int _detailNoiseBlendFactorID = Shader.PropertyToID("_detailNoiseBlendFactor");
+    public static readonly int _detailNoiseTileID = Shader.PropertyToID("_detailNoiseTile");
+    public static readonly int _heightGradientLowStartID = Shader.PropertyToID("_heightGradientLowStart");
+    public static readonly int _heightGradientLowEndID = Shader.PropertyToID("_heightGradientLowEnd");
+    public static readonly int _heightGradientHighStartID = Shader.PropertyToID("_heightGradientHighStart");
+    public static readonly int _heightGradientHighEndID = Shader.PropertyToID("_heightGradientHighEnd");
+    public static readonly int _coverageOctavesID = Shader.PropertyToID("_coverageOctaves");
+    public static readonly int _coverageOffsetID = Shader.PropertyToID("_coverageOffset");
+    public static readonly int _coverageScaleFactorID = Shader.PropertyToID("_coverageScaleFactor");
+    public static readonly int _coverageBlendFactorID = Shader.PropertyToID("_coverageBlendFactor");
 
+    /* Clouds debug. */
+    public static readonly int _cloudsDebugID = Shader.PropertyToID("_cloudsDebug");
 
     /* Sky Tables. */
     public static readonly int _transmittanceTableID = Shader.PropertyToID("_TransmittanceTable");
@@ -420,6 +446,7 @@ class ExpanseSkyRenderer : SkyRenderer
      * need to update our tables---compute a hash of the relevant parameters
      * every frame and check for differences. */
     int m_LastPrecomputationParamHash;
+    int m_LastCloudPrecomputationParamHash;
 
     // Renders a cubemap into a render texture (can be cube or 2D)
     Material m_ExpanseSkyMaterial;
@@ -532,7 +559,7 @@ class ExpanseSkyRenderer : SkyRenderer
         m_CloudCurlNoiseTable[0] = null;
     }
 
-    void SetGlobalConstants(CommandBuffer cmd, BuiltinSkyParameters builtinParams) {
+    void SetGlobalSkyConstants(CommandBuffer cmd, BuiltinSkyParameters builtinParams) {
 
         var expanseSky = builtinParams.skySettings as ExpanseSky;
 
@@ -582,28 +609,6 @@ class ExpanseSkyRenderer : SkyRenderer
         cmd.SetGlobalInt(_numberOfMultipleScatteringAccumulationSamplesID, expanseSky.numberOfMultipleScatteringAccumulationSamples.value);
         cmd.SetGlobalFloat(_useImportanceSamplingID, expanseSky.useImportanceSampling.value ? 1f : 0f);
 
-        /* Clouds. */
-        cmd.SetGlobalFloat(_cloudCoarseMarchFractionID, expanseSky.cloudCoarseMarchFraction.value);
-        cmd.SetGlobalFloat(_cloudDetailMarchFractionID, expanseSky.cloudDetailMarchFraction.value);
-        cmd.SetGlobalFloat(_cloudVolumeLowerRadialBoundaryID, expanseSky.cloudVolumeLowerRadialBoundary.value);
-        cmd.SetGlobalFloat(_cloudVolumeUpperRadialBoundaryID, expanseSky.cloudVolumeUpperRadialBoundary.value);
-        cmd.SetGlobalFloat(_cloudTextureAngularRangeID, expanseSky.cloudTextureAngularRange.value);
-        cmd.SetGlobalFloat(_cloudFalloffRadiusID, expanseSky.cloudFalloffRadius.value);
-        cmd.SetGlobalFloat(_cloudUOffsetID, expanseSky.cloudUOffset.value);
-        cmd.SetGlobalFloat(_cloudVOffsetID, expanseSky.cloudVOffset.value);
-        cmd.SetGlobalFloat(_cloudWOffsetID, expanseSky.cloudWOffset.value);
-        cmd.SetGlobalFloat(_structureNoiseBlendFactorID, expanseSky.structureNoiseBlendFactor.value);
-        cmd.SetGlobalFloat(_detailNoiseBlendFactorID, expanseSky.detailNoiseBlendFactor.value);
-        cmd.SetGlobalVector(_basePerlinOctavesID, expanseSky.basePerlinOctaves.value);
-        cmd.SetGlobalFloat(_basePerlinOffsetID, expanseSky.basePerlinOffset.value);
-        cmd.SetGlobalFloat(_basePerlinScaleFactorID, expanseSky.basePerlinScaleFactor.value);
-        cmd.SetGlobalVector(_baseWorleyOctavesID, expanseSky.baseWorleyOctaves.value);
-        cmd.SetGlobalFloat(_baseWorleyScaleFactorID, expanseSky.baseWorleyScaleFactor.value);
-        cmd.SetGlobalVector(_structureOctavesID, expanseSky.structureOctaves.value);
-        cmd.SetGlobalFloat(_structureScaleFactorID, expanseSky.structureScaleFactor.value);
-        cmd.SetGlobalVector(_detailOctavesID, expanseSky.detailOctaves.value);
-        cmd.SetGlobalFloat(_detailScaleFactorID, expanseSky.detailScaleFactor.value);
-
         /* Set the texture for the actual sky shader. */
         cmd.SetGlobalTexture(_transmittanceTableID, m_TransmittanceTables[0]);
         cmd.SetGlobalTexture(_lightPollutionTableAirID, m_LightPollutionTables[0]);
@@ -617,6 +622,33 @@ class ExpanseSkyRenderer : SkyRenderer
         cmd.SetGlobalTexture(_localMultipleScatteringTableID, m_LocalMultipleScatteringTables[0]);
         cmd.SetGlobalTexture(_globalMultipleScatteringTableAirID, m_GlobalMultipleScatteringTables[0]);
         cmd.SetGlobalTexture(_globalMultipleScatteringTableAerosolID, m_GlobalMultipleScatteringTables[1]);
+    }
+
+    void SetGlobalCloudConstants(CommandBuffer cmd, BuiltinSkyParameters builtinParams) {
+
+        var expanseSky = builtinParams.skySettings as ExpanseSky;
+
+        /* Clouds. */
+        /* Clouds geometry. */
+        cmd.SetGlobalFloat(_cloudVolumeLowerRadialBoundaryID, expanseSky.cloudVolumeLowerRadialBoundary.value);
+        cmd.SetGlobalFloat(_cloudVolumeUpperRadialBoundaryID, expanseSky.cloudVolumeUpperRadialBoundary.value);
+        cmd.SetGlobalFloat(_cloudTextureAngularRangeID, expanseSky.cloudTextureAngularRange.value);
+
+        /* Clouds noise. */
+        cmd.SetGlobalVector(_basePerlinOctavesID, expanseSky.basePerlinOctaves.value);
+        cmd.SetGlobalFloat(_basePerlinOffsetID, expanseSky.basePerlinOffset.value);
+        cmd.SetGlobalFloat(_basePerlinScaleFactorID, expanseSky.basePerlinScaleFactor.value);
+        cmd.SetGlobalVector(_baseWorleyOctavesID, expanseSky.baseWorleyOctaves.value);
+        cmd.SetGlobalFloat(_baseWorleyScaleFactorID, expanseSky.baseWorleyScaleFactor.value);
+        cmd.SetGlobalFloat(_baseWorleyBlendFactorID, expanseSky.baseWorleyBlendFactor.value);
+        cmd.SetGlobalVector(_structureOctavesID, expanseSky.structureOctaves.value);
+        cmd.SetGlobalFloat(_structureScaleFactorID, expanseSky.structureScaleFactor.value);
+        cmd.SetGlobalVector(_detailOctavesID, expanseSky.detailOctaves.value);
+        cmd.SetGlobalFloat(_detailScaleFactorID, expanseSky.detailScaleFactor.value);
+        cmd.SetGlobalFloat(_detailNoiseTileID, expanseSky.detailNoiseTile.value);
+        cmd.SetGlobalVector(_coverageOctavesID, expanseSky.coverageOctaves.value);
+        cmd.SetGlobalFloat(_coverageOffsetID, expanseSky.coverageOffset.value);
+        cmd.SetGlobalFloat(_coverageScaleFactorID, expanseSky.coverageScaleFactor.value);
 
         /* Set the cloud noise textures. */
         cmd.SetGlobalTexture(_cloudBaseNoiseTableID, m_CloudBaseNoiseTable[0]);
@@ -676,11 +708,9 @@ class ExpanseSkyRenderer : SkyRenderer
         m_GlobalMultipleScatteringTables[0]);
       s_PrecomputeCS.SetTexture(globalMultipleScatteringKernelHandle, "_GlobalMultipleScatteringTableAerosolRW",
         m_GlobalMultipleScatteringTables[1]);
+    }
 
-
-      /***********/
-      /* Clouds. */
-      /***********/
+    void SetPrecomputeCloudTextures() {
       int cloudBaseNoiseKernelHandle =
         s_CloudPrecomputeCS.FindKernel("COMPUTE_CLOUD_BASE_NOISE");
       /* Set the textures for the compute shader. */
@@ -708,7 +738,6 @@ class ExpanseSkyRenderer : SkyRenderer
 
     void PrecomputeTables(CommandBuffer cmd)
     {
-      /* Sky. */
       using (new ProfilingSample(cmd, "Precompute Expanse Sky Tables"))
       {
         int transmittanceKernelHandle =
@@ -745,7 +774,10 @@ class ExpanseSkyRenderer : SkyRenderer
         cmd.DispatchCompute(s_PrecomputeCS, groundIrradianceKernelHandle,
           GroundIrradianceTableSize / 4, 1, 1);
       }
-      /* Clouds. */
+    }
+
+    void PrecomputeCloudTables(CommandBuffer cmd)
+    {
       using (new ProfilingSample(cmd, "Precompute Expanse Cloud Tables"))
       {
         int cloudBaseNoiseKernelHandle =
@@ -775,13 +807,24 @@ class ExpanseSkyRenderer : SkyRenderer
       var expanseSky = builtinParams.skySettings as ExpanseSky;
       int currentPrecomputationHash = expanseSky.GetPrecomputationHashCode();
       if (currentPrecomputationHash != m_LastPrecomputationParamHash) {
-        SetGlobalConstants(builtinParams.commandBuffer, builtinParams);
+        SetGlobalSkyConstants(builtinParams.commandBuffer, builtinParams);
 
         SetPrecomputeTextures();
 
         PrecomputeTables(builtinParams.commandBuffer);
 
         m_LastPrecomputationParamHash = currentPrecomputationHash;
+      }
+
+      int currentCloudPrecomputationHash = expanseSky.GetCloudPrecomputationHashCode();
+      if (currentCloudPrecomputationHash != m_LastCloudPrecomputationParamHash) {
+        SetGlobalCloudConstants(builtinParams.commandBuffer, builtinParams);
+
+        SetPrecomputeCloudTextures();
+
+        PrecomputeCloudTables(builtinParams.commandBuffer);
+
+        m_LastCloudPrecomputationParamHash = currentCloudPrecomputationHash;
       }
 
       return builtinParams.skySettings.updateMode != EnvironmentUpdateMode.Realtime;
@@ -892,14 +935,45 @@ class ExpanseSkyRenderer : SkyRenderer
                                                          expanseSky.body4Rotation.value.z);
             m_PropertyBlock.SetMatrix(_body4RotationID, Matrix4x4.Rotate(body4Rotation));
 
-            /* Clouds. */
-            m_PropertyBlock.SetFloat(_cloudDensityID, expanseSky.cloudDensity.value);
-            m_PropertyBlock.SetFloat(_cloudTextureAngularRangeID, expanseSky.cloudTextureAngularRange.value);
-            m_PropertyBlock.SetFloat(_cloudForwardScatteringCoefficientID, expanseSky.cloudForwardScatteringCoefficient.value);
-            m_PropertyBlock.SetFloat(_cloudBackwardScatteringCoefficientID, expanseSky.cloudBackwardScatteringCoefficient.value);
-            m_PropertyBlock.SetInt(_numCloudTransmittanceSamplesID, expanseSky.numberOfCloudTransmittanceSamples.value);
-            m_PropertyBlock.SetInt(_numCloudSingleScatteringSamplesID, expanseSky.numberOfCloudSingleScatteringSamples.value);
+            /* Clouds geometry. */
+            m_PropertyBlock.SetFloat(_cloudUOffsetID, expanseSky.cloudUOffset.value);
+            m_PropertyBlock.SetFloat(_cloudVOffsetID, expanseSky.cloudVOffset.value);
+            m_PropertyBlock.SetFloat(_cloudWOffsetID, expanseSky.cloudWOffset.value);
 
+            /* Clouds lighting. */
+            m_PropertyBlock.SetFloat(_cloudDensityID, expanseSky.cloudDensity.value);
+            m_PropertyBlock.SetFloat(_cloudFalloffRadiusID, expanseSky.cloudFalloffRadius.value);
+            m_PropertyBlock.SetFloat(_densityAttenuationThresholdID, expanseSky.densityAttenuationThreshold.value);
+            m_PropertyBlock.SetFloat(_densityAttenuationMultiplierID, expanseSky.densityAttenuationMultiplier.value);
+            m_PropertyBlock.SetFloat(_cloudForwardScatteringID, expanseSky.cloudForwardScattering.value);
+            m_PropertyBlock.SetFloat(_cloudSilverSpreadID, expanseSky.cloudSilverSpread.value);
+            m_PropertyBlock.SetFloat(_silverIntensityID, expanseSky.silverIntensity.value);
+            m_PropertyBlock.SetFloat(_depthProbabilityOffsetID, expanseSky.depthProbabilityOffset.value);
+            m_PropertyBlock.SetFloat(_depthProbabilityMinID, expanseSky.depthProbabilityMin.value);
+            m_PropertyBlock.SetFloat(_depthProbabilityMaxID, expanseSky.depthProbabilityMax.value);
+            m_PropertyBlock.SetFloat(_atmosphericBlendDistanceID, expanseSky.atmosphericBlendDistance.value);
+            m_PropertyBlock.SetFloat(_atmosphericBlendBiasID, expanseSky.atmosphericBlendBias.value);
+
+            /* Clouds sampling. */
+            m_PropertyBlock.SetInt(_numCloudTransmittanceSamplesID, expanseSky.numCloudTransmittanceSamples.value);
+            m_PropertyBlock.SetInt(_numCloudSSSamplesID, expanseSky.numCloudSSSamples.value);
+            m_PropertyBlock.SetFloat(_cloudCoarseMarchFractionID, expanseSky.cloudCoarseMarchFraction.value);
+            m_PropertyBlock.SetFloat(_cloudDetailMarchFractionID, expanseSky.cloudDetailMarchFraction.value);
+            m_PropertyBlock.SetInt(_numZeroStepsBeforeCoarseMarchID, expanseSky.numZeroStepsBeforeCoarseMarch.value);
+
+            /* Clouds noise. */
+            m_PropertyBlock.SetFloat(_structureNoiseBlendFactorID, expanseSky.structureNoiseBlendFactor.value);
+            m_PropertyBlock.SetFloat(_detailNoiseBlendFactorID, expanseSky.detailNoiseBlendFactor.value);
+            m_PropertyBlock.SetFloat(_heightGradientLowStartID, expanseSky.heightGradientLowStart.value);
+            m_PropertyBlock.SetFloat(_heightGradientLowEndID, expanseSky.heightGradientLowEnd.value);
+            m_PropertyBlock.SetFloat(_heightGradientHighStartID, expanseSky.heightGradientHighStart.value);
+            m_PropertyBlock.SetFloat(_heightGradientHighEndID, expanseSky.heightGradientHighEnd.value);
+            m_PropertyBlock.SetFloat(_coverageBlendFactorID, expanseSky.coverageBlendFactor.value);
+
+            /* Clouds debug. */
+            m_PropertyBlock.SetFloat(_cloudsDebugID, expanseSky.cloudsDebug.value ? 1f : 0f);
+
+            /* Builtins. */
             m_PropertyBlock.SetVector(_WorldSpaceCameraPos1ID, builtinParams.worldSpaceCameraPos);
             m_PropertyBlock.SetMatrix(_ViewMatrix1ID, builtinParams.viewMatrix);
             m_PropertyBlock.SetMatrix(_PixelCoordToViewDirWS, builtinParams.pixelCoordToViewDirMatrix);

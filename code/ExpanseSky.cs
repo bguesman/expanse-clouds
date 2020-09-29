@@ -196,42 +196,15 @@ public class ExpanseSky : SkySettings
   public ClampedFloatParameter ditherAmount = new ClampedFloatParameter(0.05f, 0.0f, 1.0f);
 
 
-  /* Clouds. */
-  [Tooltip("Density of the clouds.")]
-  public ClampedFloatParameter cloudDensity = new ClampedFloatParameter(1.0f, 0.0f, 100000.0f);
-
-  [Tooltip("Forward scattering coefficient.")]
-  public ClampedFloatParameter cloudForwardScatteringCoefficient = new ClampedFloatParameter(0.9f, -1.0f, 1.0f);
-
-  [Tooltip("Backward scattering coefficient.")]
-  public ClampedFloatParameter cloudBackwardScatteringCoefficient = new ClampedFloatParameter(-0.9f, -1.0f, 1.0f);
-
-  [Tooltip("Cloud transmittance samples.")]
-  public ClampedIntParameter numberOfCloudTransmittanceSamples = new ClampedIntParameter(10, 1, 256);
-
-  [Tooltip("Cloud single scattering samples.")]
-  public ClampedIntParameter numberOfCloudSingleScatteringSamples = new ClampedIntParameter(4, 1, 64);
-
-  /* New vars start here. */
-
-  [Tooltip("Fraction along volume ray to march for accumulating coarse estimates.")]
-  public ClampedFloatParameter cloudCoarseMarchFraction = new ClampedFloatParameter(0.1f, 0.01f, 1.0f);
-
-  [Tooltip("Fraction along volume ray to march for accumulating details.")]
-  public ClampedFloatParameter cloudDetailMarchFraction = new ClampedFloatParameter(0.01f, 0.001f, 1.0f);
-
+  /* Clouds geometry. */
   [Tooltip("Lower boundary of cloud volume in the radial (near the player, vertical) direction.")]
   public ClampedFloatParameter cloudVolumeLowerRadialBoundary = new ClampedFloatParameter(1000.0f, 0.0f, 50000.0f);
 
   [Tooltip("Upper boundary of cloud volume in the radial (near the player, vertical) direction.")]
   public ClampedFloatParameter cloudVolumeUpperRadialBoundary = new ClampedFloatParameter(8000.0f, 0.0f, 50000.0f);
 
-  /* This is a repeat in a new place. */
   [Tooltip("Angular range of texture for tiling. Affects both z and x.")]
   public ClampedFloatParameter cloudTextureAngularRange = new ClampedFloatParameter(0.008f, 0.0001f, 0.05f);
-
-  [Tooltip("Radius past which cloud densities will be attenuated exponentially.")]
-  public ClampedFloatParameter cloudFalloffRadius = new ClampedFloatParameter(35000.0f, 100.0f, 100000.0f);
 
   [Tooltip("U offset for texture coordinate. Can be used to animate the clouds in the x direction.")]
   public ClampedFloatParameter cloudUOffset = new ClampedFloatParameter(0.0f, 0.0f, 1.0f);
@@ -242,45 +215,116 @@ public class ExpanseSky : SkySettings
   [Tooltip("W offset for texture coordinate. Can be used to animate the clouds in the z direction.")]
   public ClampedFloatParameter cloudWOffset = new ClampedFloatParameter(0.0f, 0.0f, 1.0f);
 
-  /* Noise parameters. */
+  /* Clouds lighting. */
+  [Tooltip("Density of the clouds.")]
+  public ClampedFloatParameter cloudDensity = new ClampedFloatParameter(0.01f, 0.0f, 1.0f);
 
-  [Tooltip("How much the higher frequency structure noise blends with the base noise.")]
-  public ClampedFloatParameter structureNoiseBlendFactor = new ClampedFloatParameter(0.1f, 0.0f, 1.0f);
+  [Tooltip("Radius past which cloud densities will be attenuated exponentially.")]
+  public ClampedFloatParameter cloudFalloffRadius = new ClampedFloatParameter(35000.0f, 100.0f, 100000.0f);
 
-  [Tooltip("How much the very high frequency detail noise blends with the base noise.")]
-  public ClampedFloatParameter detailNoiseBlendFactor = new ClampedFloatParameter(0.1f, 0.0f, 1.0f);
+  [Tooltip("Density attenuation threshold.")]
+  public ClampedFloatParameter densityAttenuationThreshold = new ClampedFloatParameter(1.0f, 0.0f, 1.0f);
 
+  [Tooltip("Density attenuation multiplier.")]
+  public ClampedFloatParameter densityAttenuationMultiplier = new ClampedFloatParameter(1.0f, 0.0f, 30.0f);
+
+  [Tooltip("Forward scattering coefficient.")]
+  public ClampedFloatParameter cloudForwardScattering = new ClampedFloatParameter(0.9f, -1.0f, 1.0f);
+
+  [Tooltip("Backward scattering coefficient.")]
+  public ClampedFloatParameter cloudSilverSpread = new ClampedFloatParameter(0.1f, 0.0f, 1.0f);
+
+  [Tooltip("Intensity of silver highlights.")]
+  public ClampedFloatParameter silverIntensity = new ClampedFloatParameter(0.5f, 0.0f, 1.0f);
+
+  [Tooltip("Offset of depth probability.")]
+  public ClampedFloatParameter depthProbabilityOffset = new ClampedFloatParameter(0.05f, 0.0f, 1.0f);
+
+  [Tooltip("Minimum of depth probability.")]
+  public ClampedFloatParameter depthProbabilityMin = new ClampedFloatParameter(0.75f, 0.0f, 3.0f);
+
+  [Tooltip("Maximum of depth probability.")]
+  public ClampedFloatParameter depthProbabilityMax = new ClampedFloatParameter(1.0f, 0.0f, 3.0f);
+
+  [Tooltip("Distance over which to apply atmospheric blend.")]
+  public ClampedFloatParameter atmosphericBlendDistance = new ClampedFloatParameter(2500.0f, 1.0f, 15000.0f);
+
+  [Tooltip("Bias above which atmospheric blend starts to be applied.")]
+  public ClampedFloatParameter atmosphericBlendBias = new ClampedFloatParameter(15000.0f, 0.0f, 100000.0f);
+
+  /* Clouds sampling. */
+  [Tooltip("Cloud transmittance samples.")]
+  public ClampedIntParameter numCloudTransmittanceSamples = new ClampedIntParameter(10, 1, 256);
+
+  [Tooltip("Cloud single scattering samples.")]
+  public ClampedIntParameter numCloudSSSamples = new ClampedIntParameter(4, 1, 64);
+
+  [Tooltip("Fraction along volume ray to march for accumulating coarse estimates.")]
+  public ClampedFloatParameter cloudCoarseMarchFraction = new ClampedFloatParameter(0.1f, 0.01f, 1.0f);
+
+  [Tooltip("Fraction along volume ray to march for accumulating details.")]
+  public ClampedFloatParameter cloudDetailMarchFraction = new ClampedFloatParameter(0.01f, 0.001f, 1.0f);
+
+  [Tooltip("Number of steps taken that read zero density before switching back to coarse march step size.")]
+  public ClampedIntParameter numZeroStepsBeforeCoarseMarch = new ClampedIntParameter(10, 1, 20);
+
+
+  /* Clouds noise. */
   [Tooltip("Octaves for FBM used in the base perlin noise.")]
   public Vector4Parameter basePerlinOctaves = new Vector4Parameter(new Vector4(8, 16, 32, 64));
-
   [Tooltip("Offset to the base perlin noise. Lowering this value will result in patchier, spottier clouds. Raising it will thicken the clouds.")]
   public ClampedFloatParameter basePerlinOffset = new ClampedFloatParameter(0.1f, 0.0f, 1.0f);
-
   [Tooltip("FBM scale factor for base perlin noise. Octave N will have amplitude scale^N.")]
   public ClampedFloatParameter basePerlinScaleFactor = new ClampedFloatParameter(1.0f, 0.0f, 2.0f);
 
   [Tooltip("Octaves for FBM used in the base worley noise.")]
   public Vector3Parameter baseWorleyOctaves = new Vector3Parameter(new Vector3(16, 32, 64));
-
   [Tooltip("FBM scale factor for base worley noise. Octave N will have amplitude scale^N.")]
   public ClampedFloatParameter baseWorleyScaleFactor = new ClampedFloatParameter(1.0f, 0.0f, 2.0f);
+  [Tooltip("Blend for base worley noise.")]
+  public ClampedFloatParameter baseWorleyBlendFactor = new ClampedFloatParameter(1.0f, 0.0f, 2.0f);
 
   [Tooltip("Octaves for FBM used in the structure noise.")]
   public Vector3Parameter structureOctaves = new Vector3Parameter(new Vector3(16, 32, 64));
-
   [Tooltip("FBM scale factor for structure noise. Octave N will have amplitude scale^N.")]
   public ClampedFloatParameter structureScaleFactor = new ClampedFloatParameter(1.0f, 0.0f, 2.0f);
+  [Tooltip("How much the higher frequency structure noise blends with the base noise.")]
+  public ClampedFloatParameter structureNoiseBlendFactor = new ClampedFloatParameter(0.1f, 0.0f, 1.0f);
 
   [Tooltip("Octaves for FBM used in the structure noise.")]
   public Vector3Parameter detailOctaves = new Vector3Parameter(new Vector3(8, 16, 32));
-
   [Tooltip("FBM scale factor for structure noise. Octave N will have amplitude scale^N.")]
   public ClampedFloatParameter detailScaleFactor = new ClampedFloatParameter(1.0f, 0.0f, 2.0f);
+  [Tooltip("How much the very high frequency detail noise blends with the base noise.")]
+  public ClampedFloatParameter detailNoiseBlendFactor = new ClampedFloatParameter(0.1f, 0.0f, 1.0f);
+  [Tooltip("Number of times to tile detail noise.")]
+  public ClampedIntParameter detailNoiseTile = new ClampedIntParameter(100, 1, 200);
 
-  /* TODO: coverage muliplier (result should saturate to 1.). */
+  [Tooltip("Start of the low height gradient.")]
+  public ClampedFloatParameter heightGradientLowStart = new ClampedFloatParameter(0.0f, 0.0f, 1.0f);
+  [Tooltip("End of the low height gradient.")]
+  public ClampedFloatParameter heightGradientLowEnd = new ClampedFloatParameter(0.1f, 0.0f, 1.0f);
+  [Tooltip("Start of the high height gradient.")]
+  public ClampedFloatParameter heightGradientHighStart = new ClampedFloatParameter(0.9f, 0.0f, 1.0f);
+  [Tooltip("End of the high height gradient.")]
+  public ClampedFloatParameter heightGradientHighEnd = new ClampedFloatParameter(1.0f, 0.0f, 1.0f);
+
+
+  [Tooltip("Octaves for FBM used in the base perlin noise.")]
+  public Vector3Parameter coverageOctaves = new Vector3Parameter(new Vector4(8, 16, 32));
+  [Tooltip("Offset for coverage map.")]
+  public ClampedFloatParameter coverageOffset = new ClampedFloatParameter(0.5f, 0.0f, 1.0f);
+  [Tooltip("FBM scale factor for coverage noise. Octave N will have amplitude scale^N.")]
+  public ClampedFloatParameter coverageScaleFactor = new ClampedFloatParameter(1.0f, 0.0f, 2.0f);
+  [Tooltip("Blend for coverage map.")]
+  public ClampedFloatParameter coverageBlendFactor = new ClampedFloatParameter(1.0f, 0.0f, 1.0f);
+
+  /* Clouds debug. */
+  [Tooltip("Debug that just shows one layer of noise.")]
+  public BoolParameter cloudsDebug = new BoolParameter(false);
 
   /********************************************************************************/
-  /******************************* End Parameters ***********************************/
+  /******************************* End Parameters *********************************/
   /********************************************************************************/
 
   ExpanseSky()
@@ -376,32 +420,60 @@ public class ExpanseSky : SkySettings
       hash = hash * 23 + useAntiAliasing.value.GetHashCode();
       hash = hash * 23 + ditherAmount.value.GetHashCode();
 
-      /* Clouds. */
-      hash = hash * 23 + cloudDensity.value.GetHashCode();
-      hash = hash * 23 + cloudForwardScatteringCoefficient.value.GetHashCode();
-      hash = hash * 23 + cloudBackwardScatteringCoefficient.value.GetHashCode();
-      hash = hash * 23 + numberOfCloudTransmittanceSamples.value.GetHashCode();
-      hash = hash * 23 + numberOfCloudSingleScatteringSamples.value.GetHashCode();
-      hash = hash * 23 + cloudCoarseMarchFraction.value.GetHashCode();
-      hash = hash * 23 + cloudDetailMarchFraction.value.GetHashCode();
+      /* Clouds geometry. */
       hash = hash * 23 + cloudVolumeLowerRadialBoundary.value.GetHashCode();
       hash = hash * 23 + cloudVolumeUpperRadialBoundary.value.GetHashCode();
       hash = hash * 23 + cloudTextureAngularRange.value.GetHashCode();
-      hash = hash * 23 + cloudFalloffRadius.value.GetHashCode();
       hash = hash * 23 + cloudUOffset.value.GetHashCode();
       hash = hash * 23 + cloudVOffset.value.GetHashCode();
       hash = hash * 23 + cloudWOffset.value.GetHashCode();
-      hash = hash * 23 + structureNoiseBlendFactor.value.GetHashCode();
-      hash = hash * 23 + detailNoiseBlendFactor.value.GetHashCode();
+
+      /* Clouds lighting. */
+      hash = hash * 23 + cloudDensity.value.GetHashCode();
+      hash = hash * 23 + cloudFalloffRadius.value.GetHashCode();
+      hash = hash * 23 + densityAttenuationThreshold.value.GetHashCode();
+      hash = hash * 23 + densityAttenuationMultiplier.value.GetHashCode();
+      hash = hash * 23 + cloudForwardScattering.value.GetHashCode();
+      hash = hash * 23 + cloudSilverSpread.value.GetHashCode();
+      hash = hash * 23 + silverIntensity.value.GetHashCode();
+      hash = hash * 23 + depthProbabilityOffset.value.GetHashCode();
+      hash = hash * 23 + depthProbabilityMin.value.GetHashCode();
+      hash = hash * 23 + depthProbabilityMax.value.GetHashCode();
+      hash = hash * 23 + atmosphericBlendDistance.value.GetHashCode();
+      hash = hash * 23 + atmosphericBlendBias.value.GetHashCode();
+
+      /* Clouds sampling. */
+      hash = hash * 23 + numCloudTransmittanceSamples.value.GetHashCode();
+      hash = hash * 23 + numCloudSSSamples.value.GetHashCode();
+      hash = hash * 23 + cloudCoarseMarchFraction.value.GetHashCode();
+      hash = hash * 23 + cloudDetailMarchFraction.value.GetHashCode();
+      hash = hash * 23 + numZeroStepsBeforeCoarseMarch.value.GetHashCode();
+
+      /* Clouds noise. */
       hash = hash * 23 + basePerlinOctaves.value.GetHashCode();
       hash = hash * 23 + basePerlinOffset.value.GetHashCode();
       hash = hash * 23 + basePerlinScaleFactor.value.GetHashCode();
       hash = hash * 23 + baseWorleyOctaves.value.GetHashCode();
       hash = hash * 23 + baseWorleyScaleFactor.value.GetHashCode();
+      hash = hash * 23 + baseWorleyBlendFactor.value.GetHashCode();
       hash = hash * 23 + structureOctaves.value.GetHashCode();
       hash = hash * 23 + structureScaleFactor.value.GetHashCode();
+      hash = hash * 23 + structureNoiseBlendFactor.value.GetHashCode();
       hash = hash * 23 + detailOctaves.value.GetHashCode();
       hash = hash * 23 + detailScaleFactor.value.GetHashCode();
+      hash = hash * 23 + detailNoiseBlendFactor.value.GetHashCode();
+      hash = hash * 23 + detailNoiseTile.value.GetHashCode();
+      hash = hash * 23 + heightGradientLowStart.value.GetHashCode();
+      hash = hash * 23 + heightGradientLowEnd.value.GetHashCode();
+      hash = hash * 23 + heightGradientHighStart.value.GetHashCode();
+      hash = hash * 23 + heightGradientHighEnd.value.GetHashCode();
+      hash = hash * 23 + coverageOctaves.value.GetHashCode();
+      hash = hash * 23 + coverageOffset.value.GetHashCode();
+      hash = hash * 23 + coverageScaleFactor.value.GetHashCode();
+      hash = hash * 23 + coverageBlendFactor.value.GetHashCode();
+
+      /* Clouds debug. */
+      hash = hash * 23 + cloudsDebug.value.GetHashCode();
     }
     return hash;
   }
@@ -436,34 +508,35 @@ public class ExpanseSky : SkySettings
       hash = hash * 23 + numberOfMultipleScatteringSamples.value.GetHashCode();
       hash = hash * 23 + numberOfMultipleScatteringAccumulationSamples.value.GetHashCode();
       hash = hash * 23 + useImportanceSampling.value.GetHashCode();
+    }
+    return hash;
+  }
 
-      /* Clouds. HACK: there should really be a separate hash code function
-       * for determining if the cloud*/
-      hash = hash * 23 + cloudDensity.value.GetHashCode();
-      hash = hash * 23 + cloudForwardScatteringCoefficient.value.GetHashCode();
-      hash = hash * 23 + cloudBackwardScatteringCoefficient.value.GetHashCode();
-      hash = hash * 23 + numberOfCloudTransmittanceSamples.value.GetHashCode();
-      hash = hash * 23 + numberOfCloudSingleScatteringSamples.value.GetHashCode();
-      hash = hash * 23 + cloudCoarseMarchFraction.value.GetHashCode();
-      hash = hash * 23 + cloudDetailMarchFraction.value.GetHashCode();
+  public int GetCloudPrecomputationHashCode()
+  {
+    int hash = base.GetHashCode();
+    unchecked
+    {
+      /* Clouds geometry. */
       hash = hash * 23 + cloudVolumeLowerRadialBoundary.value.GetHashCode();
       hash = hash * 23 + cloudVolumeUpperRadialBoundary.value.GetHashCode();
       hash = hash * 23 + cloudTextureAngularRange.value.GetHashCode();
-      hash = hash * 23 + cloudFalloffRadius.value.GetHashCode();
-      hash = hash * 23 + cloudUOffset.value.GetHashCode();
-      hash = hash * 23 + cloudVOffset.value.GetHashCode();
-      hash = hash * 23 + cloudWOffset.value.GetHashCode();
-      hash = hash * 23 + structureNoiseBlendFactor.value.GetHashCode();
-      hash = hash * 23 + detailNoiseBlendFactor.value.GetHashCode();
+
+      /* Clouds noise. */
       hash = hash * 23 + basePerlinOctaves.value.GetHashCode();
       hash = hash * 23 + basePerlinOffset.value.GetHashCode();
       hash = hash * 23 + basePerlinScaleFactor.value.GetHashCode();
       hash = hash * 23 + baseWorleyOctaves.value.GetHashCode();
       hash = hash * 23 + baseWorleyScaleFactor.value.GetHashCode();
+      hash = hash * 23 + baseWorleyBlendFactor.value.GetHashCode();
       hash = hash * 23 + structureOctaves.value.GetHashCode();
       hash = hash * 23 + structureScaleFactor.value.GetHashCode();
       hash = hash * 23 + detailOctaves.value.GetHashCode();
       hash = hash * 23 + detailScaleFactor.value.GetHashCode();
+      hash = hash * 23 + detailNoiseTile.value.GetHashCode();
+      hash = hash * 23 + coverageOctaves.value.GetHashCode();
+      hash = hash * 23 + coverageOffset.value.GetHashCode();
+      hash = hash * 23 + coverageScaleFactor.value.GetHashCode();
     }
     return hash;
   }
