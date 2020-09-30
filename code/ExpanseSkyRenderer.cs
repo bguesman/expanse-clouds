@@ -118,8 +118,8 @@ class ExpanseSkyRenderer : SkyRenderer
     /* Clouds sampling. */
     public static readonly int _numCloudTransmittanceSamplesID = Shader.PropertyToID("_numCloudTransmittanceSamples");
     public static readonly int _numCloudSSSamplesID = Shader.PropertyToID("_numCloudSSSamples");
-    public static readonly int _cloudCoarseMarchFractionID = Shader.PropertyToID("_cloudCoarseMarchFraction");
-    public static readonly int _cloudDetailMarchFractionID = Shader.PropertyToID("_cloudDetailMarchFraction");
+    public static readonly int _cloudCoarseMarchStepSizeID = Shader.PropertyToID("_cloudCoarseMarchStepSize");
+    public static readonly int _cloudDetailMarchStepSizeID = Shader.PropertyToID("_cloudDetailMarchStepSize");
     public static readonly int _numZeroStepsBeforeCoarseMarchID = Shader.PropertyToID("_numZeroStepsBeforeCoarseMarch");
 
     /* Clouds noise. */
@@ -631,7 +631,8 @@ class ExpanseSkyRenderer : SkyRenderer
         /* Clouds. */
         /* Clouds geometry. */
         cmd.SetGlobalFloat(_cloudVolumeLowerRadialBoundaryID, expanseSky.cloudVolumeLowerRadialBoundary.value);
-        cmd.SetGlobalFloat(_cloudVolumeUpperRadialBoundaryID, expanseSky.cloudVolumeUpperRadialBoundary.value);
+        cmd.SetGlobalFloat(_cloudVolumeUpperRadialBoundaryID, Mathf.Max(expanseSky.cloudVolumeLowerRadialBoundary.value+1,
+          expanseSky.cloudVolumeUpperRadialBoundary.value));
         cmd.SetGlobalFloat(_cloudTextureAngularRangeID, expanseSky.cloudTextureAngularRange.value);
 
         /* Clouds noise. */
@@ -957,8 +958,8 @@ class ExpanseSkyRenderer : SkyRenderer
             /* Clouds sampling. */
             m_PropertyBlock.SetInt(_numCloudTransmittanceSamplesID, expanseSky.numCloudTransmittanceSamples.value);
             m_PropertyBlock.SetInt(_numCloudSSSamplesID, expanseSky.numCloudSSSamples.value);
-            m_PropertyBlock.SetFloat(_cloudCoarseMarchFractionID, expanseSky.cloudCoarseMarchFraction.value);
-            m_PropertyBlock.SetFloat(_cloudDetailMarchFractionID, expanseSky.cloudDetailMarchFraction.value);
+            m_PropertyBlock.SetFloat(_cloudCoarseMarchStepSizeID, expanseSky.cloudCoarseMarchStepSize.value);
+            m_PropertyBlock.SetFloat(_cloudDetailMarchStepSizeID, expanseSky.cloudDetailMarchStepSize.value);
             m_PropertyBlock.SetInt(_numZeroStepsBeforeCoarseMarchID, expanseSky.numZeroStepsBeforeCoarseMarch.value);
 
             /* Clouds noise. */

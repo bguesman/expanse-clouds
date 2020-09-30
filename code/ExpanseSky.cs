@@ -260,10 +260,10 @@ public class ExpanseSky : SkySettings
   public ClampedIntParameter numCloudSSSamples = new ClampedIntParameter(4, 1, 64);
 
   [Tooltip("Fraction along volume ray to march for accumulating coarse estimates.")]
-  public ClampedFloatParameter cloudCoarseMarchFraction = new ClampedFloatParameter(0.1f, 0.01f, 1.0f);
+  public ClampedFloatParameter cloudCoarseMarchStepSize = new ClampedFloatParameter(250, 50, 1000);
 
   [Tooltip("Fraction along volume ray to march for accumulating details.")]
-  public ClampedFloatParameter cloudDetailMarchFraction = new ClampedFloatParameter(0.01f, 0.001f, 1.0f);
+  public ClampedFloatParameter cloudDetailMarchStepSize = new ClampedFloatParameter(100, 50, 1000);
 
   [Tooltip("Number of steps taken that read zero density before switching back to coarse march step size.")]
   public ClampedIntParameter numZeroStepsBeforeCoarseMarch = new ClampedIntParameter(10, 1, 20);
@@ -445,8 +445,8 @@ public class ExpanseSky : SkySettings
       /* Clouds sampling. */
       hash = hash * 23 + numCloudTransmittanceSamples.value.GetHashCode();
       hash = hash * 23 + numCloudSSSamples.value.GetHashCode();
-      hash = hash * 23 + cloudCoarseMarchFraction.value.GetHashCode();
-      hash = hash * 23 + cloudDetailMarchFraction.value.GetHashCode();
+      hash = hash * 23 + cloudCoarseMarchStepSize.value.GetHashCode();
+      hash = hash * 23 + cloudDetailMarchStepSize.value.GetHashCode();
       hash = hash * 23 + numZeroStepsBeforeCoarseMarch.value.GetHashCode();
 
       /* Clouds noise. */

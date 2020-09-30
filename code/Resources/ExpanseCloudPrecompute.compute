@@ -48,7 +48,7 @@ void COMPUTE_CLOUD_BASE_NOISE (uint3 id : SV_DispatchThreadID)
   float maxVal = 0.0;
   float accumulatedScale = 1.0;
   for (int i = 0; i < 4; i++) {
-    float3 octave = _basePerlinOctaves[i] * float3(1, 1, 1);
+    float3 octave = _basePerlinOctaves[i] * float3(1, 1.0, 1);
     perlinNoise += accumulatedScale * perlin(uvw, octave, float3(100.3432, 95.283, 10.48));
     maxVal += accumulatedScale;
     accumulatedScale *= _basePerlinScaleFactor;
@@ -93,7 +93,7 @@ void COMPUTE_CLOUD_BASE_NOISE (uint3 id : SV_DispatchThreadID)
   };
   for (int i = 0; i < 3; i++) {
     float3 octave = _structureOctaves[i] * float3(1, 1.0, 1);
-    structureNoise[i] += accumulatedScale * (worley(frac(mul(rotations[i], uvw) + structure_translations[i]), octave, identityRotation, float3(843.3, 95.2, 182.3), float3(92.5, 764.5, 85.2), float3(92.3, 53.2, 10.2)));
+    structureNoise[i] += accumulatedScale * (worley(frac(mul(-rotations[i], uvw) + structure_translations[i]), octave, identityRotation, float3(843.3, 95.2, 182.3), float3(92.5, 764.5, 85.2), float3(92.3, 53.2, 10.2)));
     maxVal += accumulatedScale;
     accumulatedScale *= _structureScaleFactor;
   }
@@ -115,7 +115,6 @@ void COMPUTE_CLOUD_DETAIL_NOISE (uint3 id : SV_DispatchThreadID)
   /* Compute "aspect ratio" between y extent and x/z extent of cloud volume. */
   float aspect = 2 * _cloudTextureAngularRange * _planetRadius
     / (_cloudVolumeUpperRadialBoundary - _cloudVolumeLowerRadialBoundary);
-  uvw.y = frac(uvw.y / aspect);
 
   /* Use this to modify the uvw coordinate. */
   uvw.y = frac(uvw.y * aspect);
@@ -131,7 +130,7 @@ void COMPUTE_CLOUD_DETAIL_NOISE (uint3 id : SV_DispatchThreadID)
   };
   float3x3 identityRotation = float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
   for (int i = 0; i < 3; i++) {
-    float3 octave = _detailOctaves[i] * float3(1, 1.0, 1);
+    float3 octave = _detailOctaves[i] * float3(1, 1, 1);
     noise[i] = accumulatedScale * (worley(frac(uvw + translations[i]), octave, identityRotation, float3(34.2, 68.96, 1.03), float3(19.53, 385.3, 35.2), float3(734.3, 232.2, 22.0)));
     maxVal += accumulatedScale;
     accumulatedScale *= _detailScaleFactor;

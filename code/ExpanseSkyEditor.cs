@@ -109,8 +109,8 @@ class ExpanseSkyEditor : SkySettingsEditor
     /* Clouds sampling. */
     SerializedDataParameter numCloudTransmittanceSamples;
     SerializedDataParameter numCloudSSSamples;
-    SerializedDataParameter cloudCoarseMarchFraction;
-    SerializedDataParameter cloudDetailMarchFraction;
+    SerializedDataParameter cloudCoarseMarchStepSize;
+    SerializedDataParameter cloudDetailMarchStepSize;
     SerializedDataParameter numZeroStepsBeforeCoarseMarch;
 
 
@@ -232,8 +232,8 @@ class ExpanseSkyEditor : SkySettingsEditor
         numCloudTransmittanceSamples = Unpack(o.Find(x => x.numCloudTransmittanceSamples));
         numCloudSSSamples = Unpack(o.Find(x => x.numCloudSSSamples));
 
-        cloudCoarseMarchFraction = Unpack(o.Find(x => x.cloudCoarseMarchFraction));
-        cloudDetailMarchFraction = Unpack(o.Find(x => x.cloudDetailMarchFraction));
+        cloudCoarseMarchStepSize = Unpack(o.Find(x => x.cloudCoarseMarchStepSize));
+        cloudDetailMarchStepSize = Unpack(o.Find(x => x.cloudDetailMarchStepSize));
         cloudVolumeLowerRadialBoundary = Unpack(o.Find(x => x.cloudVolumeLowerRadialBoundary));
         cloudVolumeUpperRadialBoundary = Unpack(o.Find(x => x.cloudVolumeUpperRadialBoundary));
         cloudTextureAngularRange = Unpack(o.Find(x => x.cloudTextureAngularRange));
@@ -278,8 +278,8 @@ class ExpanseSkyEditor : SkySettingsEditor
         /* Clouds sampling. */
         numCloudTransmittanceSamples = Unpack(o.Find(x => x.numCloudTransmittanceSamples));
         numCloudSSSamples = Unpack(o.Find(x => x.numCloudSSSamples));
-        cloudCoarseMarchFraction = Unpack(o.Find(x => x.cloudCoarseMarchFraction));
-        cloudDetailMarchFraction = Unpack(o.Find(x => x.cloudDetailMarchFraction));
+        cloudCoarseMarchStepSize = Unpack(o.Find(x => x.cloudCoarseMarchStepSize));
+        cloudDetailMarchStepSize = Unpack(o.Find(x => x.cloudDetailMarchStepSize));
         numZeroStepsBeforeCoarseMarch = Unpack(o.Find(x => x.numZeroStepsBeforeCoarseMarch));
 
 
@@ -450,8 +450,8 @@ class ExpanseSkyEditor : SkySettingsEditor
       UnityEditor.EditorGUILayout.LabelField("Sampling", subtitleStyle);
       PropertyField(numCloudTransmittanceSamples);
       PropertyField(numCloudSSSamples);
-      PropertyField(cloudCoarseMarchFraction);
-      PropertyField(cloudDetailMarchFraction);
+      PropertyField(cloudCoarseMarchStepSize);
+      PropertyField(cloudDetailMarchStepSize);
       PropertyField(numZeroStepsBeforeCoarseMarch);
 
 
