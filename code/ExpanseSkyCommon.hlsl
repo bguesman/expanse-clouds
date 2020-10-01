@@ -829,12 +829,28 @@ float computeDensityExponential(float3 p, float planetR, float scaleHeight,
   return density * exp((planetR - length(p))/scaleHeight);
 }
 
+/* Computes density at a point for exponentially distributed atmosphere.
+ * Assumes the planet is centered at the origin. */
+float computeDensityExponentialHeightFog(float3 p, float planetR, float scaleHeight,
+  float density, float attenuationDistance, float dist) {
+  return density * exp((planetR - length(p))/scaleHeight)
+    * saturate(exp(-dist/attenuationDistance));
+}
+
 /* Computes density at a point for tent distributed atmosphere.
  * Assumes the planet is centered at the origin. */
 float computeDensityTent(float3 p, float planetR, float height,
   float thickness, float density) {
   return density * max(0.0,
     1.0 - abs(length(p) - planetR - height) / (0.5 * thickness));
+}
+
+/* Computes density at a point for linearly distributed atmosphere.
+ * Assumes the planet is centered at the origin. */
+float computeDensityLinear(float3 p, float planetR, float height,
+  float thickness, float density) {
+  return density * max(0.0,
+    1.0 - max(0.0, max(0.0, length(p) - planetR - height) / (thickness)));
 }
 
 /* Computes the optical depth for an exponentially distributed layer. */
@@ -854,6 +870,53 @@ float computeOpticalDepthExponential(float3 originPoint, float3 samplePoint,
 
     /* Accumulate the density at that point. */
     acc += computeDensityExponential(pt, planetR, scaleHeight, density)
+      * t_ds.y * length(d);
+  }
+  return acc;
+}
+
+/* Computes the optical depth for an exponentially distributed layer. */
+float computeOpticalDepthExponentialHeightFog(float3 originPoint, float3 samplePoint,
+  float planetR, float scaleHeight, float density, float attenuationDistance, int numberOfSamples) {
+  // Evaluate integral over curved planet with a midpoint integrator.
+  float3 d = samplePoint - originPoint;
+  float length_d = length(d);
+  float acc = 0.0;
+  for (int i = 0; i < numberOfSamples; i++) {
+    /* Compute where along the ray we're going to sample. */
+    float2 t_ds = _useImportanceSampling ?
+       (generateCubicSampleFromIndex(i, numberOfSamples)) :
+       (generateLinearSampleFromIndex(i, numberOfSamples));
+
+    /* Compute the point we're going to sample at. */
+    float3 pt = originPoint + (d * t_ds.x);
+
+    /* Accumulate the density at that point. */
+    acc += computeDensityExponentialHeightFog(pt, planetR, scaleHeight,
+      density, attenuationDistance, length_d)
+      * t_ds.y * length_d;
+  }
+  return acc;
+}
+
+/* Computes the optical depth for a linearly distributed layer. */
+float computeOpticalDepthLinear(float3 originPoint, float3 samplePoint,
+  float planetR, float height, float thickness, float density,
+  int numberOfSamples) {
+  // Evaluate integral over curved planet with a midpoint integrator.
+  float3 d = samplePoint - originPoint;
+  float acc = 0.0;
+  for (int i = 0; i < numberOfSamples; i++) {
+    /* Compute where along the ray we're going to sample. */
+    float2 t_ds = _useImportanceSampling ?
+       (generateCubicSampleFromIndex(i, numberOfSamples)) :
+       (generateLinearSampleFromIndex(i, numberOfSamples));
+
+    /* Compute the point we're going to sample at. */
+    float3 pt = originPoint + (d * t_ds.x);
+
+    /* Accumulate the density at that point. */
+    acc += computeDensityLinear(pt, planetR, height, thickness, density)
       * t_ds.y * length(d);
   }
   return acc;

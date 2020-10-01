@@ -216,9 +216,24 @@ Shader "HDRP/Sky/ExpanseSky"
         }
         groundAlbedo /= PI;
 
+        /* Trace a ray from the ground to the light to see where we
+         * hit the sky (if we hit the sky). In order for this to work correctly,
+         * we have to displace the start point by a little bit. */
+        IntersectionData lightIntersection = traceRay(groundPoint * 1.001, L,
+          _planetRadius, _atmosphereRadius);
+        float3 groundT = float3(1, 1, 1);
+        if (lightIntersection.atmoHit && !lightIntersection.groundHit) {
+          float ground_r = length(groundPoint);
+          float ground_mu = clampCosine(dot(normalize(groundPoint), L));
+          float2 groundTransmittanceUV = mapTransmittanceCoordinates(ground_r,
+            ground_mu, _atmosphereRadius, _planetRadius, lightIntersection.endT, false);
+          groundT = SAMPLE_TEXTURE2D_LOD(_TransmittanceTable, s_linear_clamp_sampler,
+            groundTransmittanceUV, 0).xyz;
+        }
+
         /* Compute the ground reflectance from the light. */
         float cos_hit_l = dot(normalize(groundPoint), L);
-        result += groundAlbedo * lightColor * saturate(cos_hit_l);
+        result += groundT * groundAlbedo * lightColor * saturate(cos_hit_l);
 
         /* Compute the ground reflectance from the sky. */
         float2 groundIrradianceUV = mapGroundIrradianceCoordinates(cos_hit_l);
@@ -228,7 +243,8 @@ Shader "HDRP/Sky/ExpanseSky"
         float3 groundIrradianceAerosol =
           SAMPLE_TEXTURE2D_LOD(_GroundIrradianceTableAerosol,
           s_linear_clamp_sampler, groundIrradianceUV, 0).rgb;
-        result += groundAlbedo * lightColor
+
+        result += groundAlbedo * lightColor * groundT
           * (_skyTintF3 * 2.0 * _airCoefficientsF3 * groundIrradianceAir
             + _aerosolCoefficient * groundIrradianceAerosol);
         k++;
@@ -642,9 +658,9 @@ Shader "HDRP/Sky/ExpanseSky"
     return saturate(max(exp(-ds * density), 0.7 * exp(-0.25 * ds * density)));
   }
 
-  float cloudDensityAttenuation(float d_y) {
+  float cloudDensityAttenuation(float distance) {
     return saturate(exp(_densityAttenuationMultiplier
-      * (d_y - _densityAttenuationThreshold)));
+      * (_densityAttenuationThreshold - distance)/100000));
   }
 
   float cloudDepthProbability(float lowFreqDensitySample, float v) {
@@ -652,11 +668,52 @@ Shader "HDRP/Sky/ExpanseSky"
         max(0.0, remap(v, 0.3, 0.85, _depthProbabilityMin, _depthProbabilityMax)));
   }
 
-  float atmosphericBlend(float3 O, float3 startPoint) {
-    float dist = length(O - startPoint);
+  /* Computes atmospheric blend based purely on distance. This is, generally,
+   * a hack. */
+  float atmosphericBlendFromDistance(float3 O, float3 samplePoint) {
+    float dist = length(O - samplePoint);
     return saturate(1.0 -
       1.0/(1.0 + exp((-(dist-_atmosphericBlendBias)/_atmosphericBlendDistance))));
   }
+
+  /* Given a sample point and a light direction, computes volumetric shadow. */
+  float volumetricShadow(float3 samplePoint, float3 L) {
+
+  }
+
+  /* Computes atmospheric blend based on the sky transmittance to sample
+   * point. This is still a hack, but it's less of a hack. There is no
+   * tweakabilty */
+  float atmosphericBlendFromScattering(float3 O, float3 d, float3 samplePoint, float skyHit) {
+    /* We'll use the usual strategy of sampling the transmittance table
+     * at the origin and at the sample point, and then dividing the results
+     * to get the transmittance from the origin to the sample point. */
+
+    float r_O = length(O);
+    float mu_O = clampCosine(dot(normalize(O), d));
+
+    /* Compute distance to sky exit. */
+
+
+    float r_sample = length(samplePoint);
+    float mu_sample = clampCosine(dot(normalize(samplePoint), d));
+
+    float2 uvO = mapTransmittanceCoordinates(r_O,
+      mu_O, _atmosphereRadius, _planetRadius, skyHit, false);
+    float2 uvSample = mapTransmittanceCoordinates(r_sample,
+      mu_sample, _atmosphereRadius, _planetRadius, skyHit, false);
+    float3 T_O = SAMPLE_TEXTURE2D_LOD(_TransmittanceTable, s_linear_clamp_sampler,
+      uvO, 0).xyz;
+    float3 T_sample = SAMPLE_TEXTURE2D_LOD(_TransmittanceTable, s_linear_clamp_sampler,
+      uvSample, 0).xyz;
+
+    float3 T = T_O / T_sample;
+
+    /* Average color components to get color-independent result. */
+    return saturate(dot(float3(1, 1, 1) / 3.0, T));
+    // return 0.5;
+  }
+
 
   struct cloudShadingResult {
     float alpha;
@@ -681,7 +738,7 @@ Shader "HDRP/Sky/ExpanseSky"
 
   /* Shades clouds at point O looking in direction d. First 3 numbers are
    * cloud scattering color, last number is cloud transmittance. */
-  cloudShadingResult shadeClouds(float3 O, float3 d) {
+  cloudShadingResult shadeClouds(float3 O, float3 d, float skyHit) {
     /* Initialize the shading result struct with default values. */
     cloudShadingResult result;
     result.alpha = 0.0;
@@ -703,6 +760,7 @@ Shader "HDRP/Sky/ExpanseSky"
     float3 startPoint = O + intersections.x * d;
     float3 endPoint = O + intersections.y * d;
     float pathLength = length(endPoint - startPoint);
+    float startPointDistance = length(O - startPoint);
 
     /* For viewing noise textures only. */
     if (_cloudsDebug) {
@@ -710,23 +768,24 @@ Shader "HDRP/Sky/ExpanseSky"
     }
 
     /* Compute the atmospheric blend factor and don't raymarch if it is
-     * high enough. */
-    result.atmosphericBlend = atmosphericBlend(O, startPoint);
-    if (result.atmosphericBlend < 0.01) {
-      return result;
-    }
+     * high enough. HACK: this uses a pure distance blend factor. */
+    // result.atmosphericBlend = atmosphericBlend(O, startPoint);
+    // if (result.atmosphericBlend < 0.01) {
+    //   return result;
+    // }
 
     /* If the start point falls outside the falloff radius, don't raymarch
      * needlessly. */
-    if (length(startPoint - O) > _cloudFalloffRadius) {
-      return result;
-    }
+    // if (length(startPoint - O) > _cloudFalloffRadius) {
+    //   return result;
+    // }
 
     result.alpha = 1.0; /* We will work only to reduce alpha. */
     float t = 0.0; /* Distance we have marched so far. */
     float dt = _cloudCoarseMarchStepSize; /* March step size. */
     int numStepsZeroDensity = 0;
     float densitySample = 0.0; /* Density sample for each march step. */
+    float atmosphericBlendDepth = 0.0; /* Depth to compute atmospheric blend. */
     while (t < pathLength && result.alpha > 1e-5) {
       /* Ensure we don't march outside the volume. */
       dt = min(dt, pathLength - t);
@@ -737,10 +796,10 @@ Shader "HDRP/Sky/ExpanseSky"
       float3 cloud_UV_base = mapCloudUV(samplePoint, radialExtent, _cloudTextureAngularRange, 1, 1);
 
       bool skipThisStep = false;
-      if (dt > _cloudDetailMarchStepSize) {
+      if (dt > _cloudDetailMarchStepSize && startPointDistance < _cloudFalloffRadius) {
         /* Try sampling low LOD. */
         densitySample = sampleCloudDensityLowFrequency(cloud_UV_base);
-        densitySample *= cloudDensityAttenuation(d.y);
+        densitySample *= cloudDensityAttenuation(length(samplePoint - O));
         if (densitySample < 1e-8) {
           /* We have trivial density. Skip this step altogether. */
           skipThisStep = true;
@@ -759,15 +818,25 @@ Shader "HDRP/Sky/ExpanseSky"
 
       /* Skip if we encountered a reason to do so. */
       if (skipThisStep) {
+        /* Still increment atmospheric blend depth. */
+        if (result.alpha > 0.5) {
+          atmosphericBlendDepth += dt;
+        }
         t += dt;
         continue;
       }
 
-      /* Sample full LOD. */
-      float3 cloud_UV_detail = mapCloudUV(samplePoint, radialExtent, _cloudTextureAngularRange,
-        _detailNoiseTile, _detailNoiseTile);
-      densitySample = sampleCloudDensity(cloud_UV_base, cloud_UV_detail, false);
-      densitySample *= cloudDensityAttenuation(d.y);
+      if (startPointDistance < _cloudFalloffRadius) {
+        /* Sample full LOD. */
+        float3 cloud_UV_detail = mapCloudUV(samplePoint, radialExtent, _cloudTextureAngularRange,
+          _detailNoiseTile, _detailNoiseTile);
+        densitySample = sampleCloudDensity(cloud_UV_base, cloud_UV_detail, false);
+        densitySample *= cloudDensityAttenuation(length(samplePoint - O));
+      } else {
+        /* Sample low LOD. */
+        densitySample = sampleCloudDensityLowFrequency(cloud_UV_base);
+        densitySample *= cloudDensityAttenuation(length(samplePoint - O));
+      }
 
       /* Perform some logic on the step size for next iteration. */
       bool skipLightingStep = false;
@@ -777,7 +846,7 @@ Shader "HDRP/Sky/ExpanseSky"
          * lighting step. */
         skipLightingStep = true;
         numStepsZeroDensity++;
-        if (numStepsZeroDensity > _numZeroStepsBeforeCoarseMarch) {
+        if (numStepsZeroDensity > _numZeroStepsBeforeCoarseMarch && startPointDistance < _cloudFalloffRadius) {
           dt = _cloudCoarseMarchStepSize;
           numStepsZeroDensity = 0;
         }
@@ -790,6 +859,12 @@ Shader "HDRP/Sky/ExpanseSky"
        * invert it at the end. */
       float transmittanceSample = cloudTransmittance(dt, densitySample);
       result.alpha *= transmittanceSample;
+
+      /* Keep marching forward our atmospheric blend depth until we hit
+       * an alpha of 0.5. */
+      if (result.alpha > 0.5) {
+        atmosphericBlendDepth += dt;
+      }
 
       if (skipLightingStep) {
         t += dt;
@@ -830,6 +905,10 @@ Shader "HDRP/Sky/ExpanseSky"
       t += dt;
     }
 
+    /* Compute atmospheric blend factor from the depth we computed. */
+    result.atmosphericBlend = atmosphericBlendFromScattering(O, d,
+      startPoint + d * atmosphericBlendDepth, skyHit);
+
     /* We accumulated transmittance---alpha is 1-transmittance. */
     result.alpha = 1 - result.alpha;
 
@@ -857,7 +936,7 @@ Shader "HDRP/Sky/ExpanseSky"
     /* Accumulate direct illumination. */
     float3 L0 = float3(0, 0, 0);
     if (intersection.groundHit) {
-      L0 += shadeGround(endPoint);
+      // L0 += shadeGround(endPoint);
     } else {
       float3 closestCelestialBodyShading = shadeClosestCelestialBody(d);
       if (closestCelestialBodyShading.x < 0) {
@@ -882,7 +961,7 @@ Shader "HDRP/Sky/ExpanseSky"
       transmittanceUV).xyz;
 
     /* HACKY CLOUDS STUFF. HACK. */
-    cloudShadingResult cloudResult = shadeClouds(O, d);
+    cloudShadingResult cloudResult = shadeClouds(O, d, t_hit);
 
     if (_cloudsDebug) {
       return cloudResult.lighting;

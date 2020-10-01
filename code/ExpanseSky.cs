@@ -222,11 +222,11 @@ public class ExpanseSky : SkySettings
   [Tooltip("Radius past which cloud densities will be attenuated exponentially.")]
   public ClampedFloatParameter cloudFalloffRadius = new ClampedFloatParameter(35000.0f, 100.0f, 100000.0f);
 
-  [Tooltip("Density attenuation threshold.")]
-  public ClampedFloatParameter densityAttenuationThreshold = new ClampedFloatParameter(1.0f, 0.0f, 1.0f);
+  [Tooltip("Density attenuation threshold in meters.")]
+  public ClampedFloatParameter densityAttenuationThreshold = new ClampedFloatParameter(35000.0f, 100.0f, 100000.0f);
 
   [Tooltip("Density attenuation multiplier.")]
-  public ClampedFloatParameter densityAttenuationMultiplier = new ClampedFloatParameter(1.0f, 0.0f, 30.0f);
+  public ClampedFloatParameter densityAttenuationMultiplier = new ClampedFloatParameter(1.0f, 0.0f, 100.0f);
 
   [Tooltip("Forward scattering coefficient.")]
   public ClampedFloatParameter cloudForwardScattering = new ClampedFloatParameter(0.9f, -1.0f, 1.0f);
