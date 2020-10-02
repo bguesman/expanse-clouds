@@ -35,6 +35,12 @@ float4 _ozoneCoefficients;
 float _ozoneThickness;
 float _ozoneHeight;
 float _ozoneDensity;
+float4 _heightFogCoefficients;
+float _scaleHeightHeightFog;
+float _heightFogAnisotropy;
+float _heightFogDensity;
+float _heightFogAttenuationDistance;
+float _heightFogAttenuationBias;
 int _numberOfTransmittanceSamples;
 int _numberOfLightPollutionSamples;
 int _numberOfScatteringSamples;
@@ -71,6 +77,7 @@ float _coverageScaleFactor;
  * float4's. */
 #define _airCoefficientsF3 _airCoefficients.xyz
 #define _ozoneCoefficientsF3 _ozoneCoefficients.xyz
+#define _heightFogCoefficientsF3 _heightFogCoefficients.xyz
 #define _groundTintF3 _groundTint.xyz
 #define _lightPollutionTintF3 _lightPollutionTint.xyz
 
@@ -97,6 +104,7 @@ TEXTURE2D(_TransmittanceTable);
  * mu (y dimension): the zenith angle of the viewing direction. */
 TEXTURE2D(_LightPollutionTableAir);
 TEXTURE2D(_LightPollutionTableAerosol);
+TEXTURE2D(_LightPollutionTableHeightFog);
 /* Table dimensions. Must match those in ExpanseSkyRenderer.cs. TODO: would
  * be great to be able to set these as constants. I don't want to make them
  * accessible because I haven't set up any way to reallocate these on the
@@ -112,8 +120,10 @@ TEXTURE2D(_LightPollutionTableAerosol);
  * nu (w dimension): the azimuth angle of the light source. */
 TEXTURE3D(_SingleScatteringTableAir);
 TEXTURE3D(_SingleScatteringTableAerosol);
+TEXTURE3D(_SingleScatteringTableHeightFog);
 TEXTURE3D(_SingleScatteringTableAirNoShadows);
 TEXTURE3D(_SingleScatteringTableAerosolNoShadows);
+TEXTURE3D(_SingleScatteringTableHeightFogNoShadows);
 /* Table dimensions. Must match those in ExpanseSkyRenderer.cs. TODO: would
  * be great to be able to set these as constants. I don't want to make them
  * accessible because I haven't set up any way to reallocate these on the
@@ -129,6 +139,7 @@ TEXTURE3D(_SingleScatteringTableAerosolNoShadows);
  * light direction. */
 TEXTURE2D(_GroundIrradianceTableAir);
 TEXTURE2D(_GroundIrradianceTableAerosol);
+TEXTURE2D(_GroundIrradianceTableHeightFog);
 /* Table dimensions. Must match those in ExpanseSkyRenderer.cs. TODO: would
  * be great to be able to set these as constants. I don't want to make them
  * accessible because I haven't set up any way to reallocate these on the
@@ -156,6 +167,7 @@ TEXTURE2D(_LocalMultipleScatteringTable);
  * nu (w dimension): the azimuth angle of the light source. */
 TEXTURE3D(_GlobalMultipleScatteringTableAir);
 TEXTURE3D(_GlobalMultipleScatteringTableAerosol);
+TEXTURE3D(_GlobalMultipleScatteringTableHeightFog);
 /* Table dimensions. Must match those in ExpanseSkyRenderer.cs. TODO: would
  * be great to be able to set these as constants. I don't want to make them
  * accessible because I haven't set up any way to reallocate these on the
@@ -334,7 +346,7 @@ float worley(float3 uv, float3 grid_res, float3x3 rotation, float3 seed1, float3
   float d = FLT_MAX; /* Large number. */
   float3 offsets[4] = {float3(0, 0, 0), float3(0, 0.5, 0), float3(0.5, 0.5, 0), float3(0, 0.5, 0.5)};
   for (int r = 0; r < 4; r++) {
-    float3 p = 0.5 * (random_3_3_seeded(tl + offsets[r], seed1, seed2, seed3) + 1);
+    float3 p = random_3_3_seeded(tl + offsets[r], seed1, seed2, seed3);
     /* Compute distance to the point. */
     d = min(d, length(f_uv - p));
   }
@@ -347,7 +359,7 @@ float worley(float3 uv, float3 grid_res, float3x3 rotation, float3 seed1, float3
           /* Wraparound. */
           float3 tl_neighbor_seed = tl_neighbor - grid_res * floor(tl_neighbor / grid_res);
           for (int r = 0; r < 4; r++) {
-            float3 p_neighbor = (0.5 * (1 + random_3_3_seeded(tl_neighbor_seed + offsets[r], seed1, seed2, seed3))) + float3(i, j, k);
+            float3 p_neighbor = random_3_3_seeded(tl_neighbor_seed + offsets[r], seed1, seed2, seed3) + float3(i, j, k);
             d = min(d, length(p_neighbor - f_uv));
           }
         }
@@ -832,9 +844,9 @@ float computeDensityExponential(float3 p, float planetR, float scaleHeight,
 /* Computes density at a point for exponentially distributed atmosphere.
  * Assumes the planet is centered at the origin. */
 float computeDensityExponentialHeightFog(float3 p, float planetR, float scaleHeight,
-  float density, float attenuationDistance, float dist) {
+  float density, float attenuationDistance, float attenuationBias, float dist) {
   return density * exp((planetR - length(p))/scaleHeight)
-    * saturate(exp(-dist/attenuationDistance));
+    * saturate(exp(-(dist-attenuationBias)/attenuationDistance));
 }
 
 /* Computes density at a point for tent distributed atmosphere.
@@ -877,7 +889,8 @@ float computeOpticalDepthExponential(float3 originPoint, float3 samplePoint,
 
 /* Computes the optical depth for an exponentially distributed layer. */
 float computeOpticalDepthExponentialHeightFog(float3 originPoint, float3 samplePoint,
-  float planetR, float scaleHeight, float density, float attenuationDistance, int numberOfSamples) {
+  float planetR, float scaleHeight, float density, float attenuationDistance,
+  float attenuationBias, int numberOfSamples) {
   // Evaluate integral over curved planet with a midpoint integrator.
   float3 d = samplePoint - originPoint;
   float length_d = length(d);
@@ -893,7 +906,7 @@ float computeOpticalDepthExponentialHeightFog(float3 originPoint, float3 sampleP
 
     /* Accumulate the density at that point. */
     acc += computeDensityExponentialHeightFog(pt, planetR, scaleHeight,
-      density, attenuationDistance, length_d)
+      density, attenuationDistance, attenuationBias, length_d)
       * t_ds.y * length_d;
   }
   return acc;

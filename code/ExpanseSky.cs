@@ -93,6 +93,28 @@ public class ExpanseSky : SkySettings
   [Tooltip("Controls the density of the ozone layer. Anywhere between 0.0 and 1.0 is reasonable for a density you would find on Earth. Pushing this higher will deepen the blue of the daytime sky, and further saturate the vibrant colors of sunsets and sunrises.")]
   public ClampedFloatParameter ozoneDensity = new ClampedFloatParameter(0.3f, 0.0f, 10.0f);
 
+  /* Height Fog Parameters. */
+  [Tooltip("The scattering coefficients for Mie scattering due to aerosols at sea level. The value on Earth is 0.000021 for all color components. Typically fog scattering is not wavelength-dependent, but it can be useful to model it this way to get a particular look.")]
+  public Vector3Parameter heightFogCoefficients = new Vector3Parameter(new Vector3(0.000021f, 0.000021f, 0.000021f));
+
+  [Tooltip("The scale height for height fog. This parameterizes the density falloff of the height fog layer as it extends toward space. Adjusting this and the height fog density can give the player's immediate surroundings a dusty or foggy look.")]
+  public ClampedFloatParameter scaleHeightHeightFog = new ClampedFloatParameter(1200, 0, 100000);
+
+  [Tooltip("The anisotropy factor for Mie scattering. 0.76 is a reasonable value for Earth. 1.0 specifies fully directional toward the light source, and -1.0 specifies fully directional away from the light source.")]
+  public ClampedFloatParameter heightFogAnisotropy = new ClampedFloatParameter(0.76f, -1.0f, 1.0f);
+
+  [Tooltip("The density of height fog aerosols in the atmosphere. Adjusting this and the height fog scale height can give the area immediately around the player a dusty or foggy look.")]
+  public ClampedFloatParameter heightFogDensity = new ClampedFloatParameter(100.0f, 0.0f, 1000.0f);
+
+  [Tooltip("The distance over which the height fog attenuates exponentially.")]
+  public ClampedFloatParameter heightFogAttenuationDistance = new ClampedFloatParameter(1000, 0, 100000);
+
+  [Tooltip("The bias to the height fog attenuation---can push the height fog further out or closer in to the player.")]
+  public ClampedFloatParameter heightFogAttenuationBias = new ClampedFloatParameter(1000, 0, 100000);
+
+  [Tooltip("Artistic override for tinting the height fog.")]
+  public ColorParameter heightFogTint = new ColorParameter(Color.grey, hdr: false, showAlpha: false, showEyeDropper: true);
+
   /* Artistic overrides. */
   [Tooltip("A tint to the overall sky color. Perfect grey, (128, 128, 128), specifies no tint.")]
   public ColorParameter skyTint = new ColorParameter(Color.grey, hdr: false, showAlpha: false, showEyeDropper: true);
@@ -376,6 +398,15 @@ public class ExpanseSky : SkySettings
       hash = hash * 23 + ozoneHeight.value.GetHashCode();
       hash = hash * 23 + ozoneDensity.value.GetHashCode();
 
+      /* Height Fog. */
+      hash = hash * 23 + heightFogCoefficients.value.GetHashCode();
+      hash = hash * 23 + scaleHeightHeightFog.value.GetHashCode();
+      hash = hash * 23 + heightFogAnisotropy.value.GetHashCode();
+      hash = hash * 23 + heightFogDensity.value.GetHashCode();
+      hash = hash * 23 + heightFogAttenuationDistance.value.GetHashCode();
+      hash = hash * 23 + heightFogAttenuationBias.value.GetHashCode();
+      hash = hash * 23 + heightFogTint.value.GetHashCode();
+
       /* Artistic overrides. */
       hash = hash * 23 + skyTint.value.GetHashCode();
       hash = hash * 23 + multipleScatteringMultiplier.value.GetHashCode();
@@ -494,6 +525,12 @@ public class ExpanseSky : SkySettings
       hash = hash * 23 + scaleHeightAerosols.value.GetHashCode();
       hash = hash * 23 + aerosolAnisotropy.value.GetHashCode();
       hash = hash * 23 + aerosolDensity.value.GetHashCode();
+      hash = hash * 23 + heightFogCoefficients.value.GetHashCode();
+      hash = hash * 23 + scaleHeightHeightFog.value.GetHashCode();
+      hash = hash * 23 + heightFogAnisotropy.value.GetHashCode();
+      hash = hash * 23 + heightFogDensity.value.GetHashCode();
+      hash = hash * 23 + heightFogAttenuationDistance.value.GetHashCode();
+      hash = hash * 23 + heightFogAttenuationBias.value.GetHashCode();
       hash = hash * 23 + airCoefficients.value.GetHashCode();
       hash = hash * 23 + scaleHeightAir.value.GetHashCode();
       hash = hash * 23 + airDensity.value.GetHashCode();

@@ -40,6 +40,16 @@ class ExpanseSkyEditor : SkySettingsEditor
     SerializedDataParameter ozoneHeight;
     SerializedDataParameter ozoneDensity;
 
+    /* Height Fog. */
+    SerializedDataParameter heightFogCoefficients;
+    SerializedDataParameter scaleHeightHeightFog;
+    SerializedDataParameter heightFogAnisotropy;
+    SerializedDataParameter heightFogDensity;
+    SerializedDataParameter heightFogAttenuationDistance;
+    SerializedDataParameter heightFogAttenuationBias;
+    SerializedDataParameter heightFogTint;
+
+
     /* Artistic Overrides. */
     SerializedDataParameter skyTint;
     SerializedDataParameter multipleScatteringMultiplier;
@@ -180,6 +190,15 @@ class ExpanseSkyEditor : SkySettingsEditor
         ozoneThickness = Unpack(o.Find(x => x.ozoneThickness));
         ozoneHeight = Unpack(o.Find(x => x.ozoneHeight));
         ozoneDensity = Unpack(o.Find(x => x.ozoneDensity));
+
+        /* Height fog. */
+        heightFogCoefficients = Unpack(o.Find(x => x.heightFogCoefficients));
+        scaleHeightHeightFog = Unpack(o.Find(x => x.scaleHeightHeightFog));
+        heightFogAnisotropy = Unpack(o.Find(x => x.heightFogAnisotropy));
+        heightFogDensity = Unpack(o.Find(x => x.heightFogDensity));
+        heightFogAttenuationDistance = Unpack(o.Find(x => x.heightFogAttenuationDistance));
+        heightFogAttenuationBias = Unpack(o.Find(x => x.heightFogAttenuationBias));
+        heightFogTint = Unpack(o.Find(x => x.heightFogTint));
 
         /* Artistic Overrides. */
         skyTint = Unpack(o.Find(x => x.skyTint));
@@ -360,6 +379,17 @@ class ExpanseSkyEditor : SkySettingsEditor
       PropertyField(ozoneThickness);
       PropertyField(ozoneHeight);
       PropertyField(ozoneDensity);
+
+      /* Height fog. */
+      UnityEditor.EditorGUILayout.LabelField("", titleStyle);
+      UnityEditor.EditorGUILayout.LabelField("Height Fog", titleStyle);
+      PropertyField(heightFogCoefficients);
+      PropertyField(scaleHeightHeightFog);
+      PropertyField(heightFogAnisotropy);
+      PropertyField(heightFogDensity);
+      PropertyField(heightFogAttenuationDistance);
+      PropertyField(heightFogAttenuationBias);
+      PropertyField(heightFogTint);
 
       /* Artistic Overrides. */
       UnityEditor.EditorGUILayout.LabelField("", titleStyle);

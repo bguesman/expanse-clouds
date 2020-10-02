@@ -28,6 +28,7 @@ RW_TEXTURE2D(float3, _TransmittanceTableRW);
  * mu (y dimension): the zenith angle of the viewing direction. */
 RW_TEXTURE2D(float3, _LightPollutionTableAirRW);
 RW_TEXTURE2D(float3, _LightPollutionTableAerosolRW);
+RW_TEXTURE2D(float3, _LightPollutionTableHeightFogRW);
 
 /* Single scattering tables. Leverage spherical symmetry of the atmosphere,
  * parameterized by:
@@ -37,8 +38,10 @@ RW_TEXTURE2D(float3, _LightPollutionTableAerosolRW);
  * nu (w dimension): the azimuth angle of the light source. */
 RW_TEXTURE3D(float3, _SingleScatteringTableAirRW);
 RW_TEXTURE3D(float3, _SingleScatteringTableAerosolRW);
+RW_TEXTURE3D(float3, _SingleScatteringTableHeightFogRW);
 RW_TEXTURE3D(float3, _SingleScatteringTableAirNoShadowsRW);
 RW_TEXTURE3D(float3, _SingleScatteringTableAerosolNoShadowsRW);
+RW_TEXTURE3D(float3, _SingleScatteringTableHeightFogNoShadowsRW);
 
 /* Ground irradiance table. Leverages spherical symmetry of the atmosphere,
  * parameterized by:
@@ -46,6 +49,7 @@ RW_TEXTURE3D(float3, _SingleScatteringTableAerosolNoShadowsRW);
  * light direction. */
 RW_TEXTURE2D(float3, _GroundIrradianceTableAirRW);
 RW_TEXTURE2D(float3, _GroundIrradianceTableAerosolRW);
+RW_TEXTURE2D(float3, _GroundIrradianceTableHeightFogRW);
 
 /* Multiple scattering table. Leverages spherical symmetry of the atmosphere,
  * parameterized by:
@@ -62,6 +66,7 @@ RW_TEXTURE2D(float3, _LocalMultipleScatteringTableRW);
  * nu (w dimension): the azimuth angle of the light source. */
 RW_TEXTURE3D(float3, _GlobalMultipleScatteringTableAirRW);
 RW_TEXTURE3D(float3, _GlobalMultipleScatteringTableAerosolRW);
+RW_TEXTURE3D(float3, _GlobalMultipleScatteringTableHeightFogRW);
 
 [numthreads(4,4,1)]
 void COMPUTE_TRANSMITTANCE (uint3 id : SV_DispatchThreadID)
@@ -90,22 +95,10 @@ void COMPUTE_TRANSMITTANCE (uint3 id : SV_DispatchThreadID)
       _scaleHeightAir, _airDensity, _numberOfTransmittanceSamples);
     float opticalDepthOzone = computeOpticalDepthTent(O, endPoint, _planetRadius,
       _ozoneHeight, _ozoneThickness, _ozoneDensity, _numberOfTransmittanceSamples);
-    // float heightFogHeight = 1;
-    // float heightFogThickness = 500;
-    // float heightFogDensity = 1;
-    /* TODO: this all works now. But it looks weird when the fog has the same
-     * anisotropy component as the usual mie scattering. We will need
-     * A) separate tables for fog wherever we have separate tables for
-     * mie scattering. I would include multiple scattering in this.
-     * B) new parameter sliders:
-     *      1) fog scale height
-     *      2) fog attenuation distance
-     *      3) fog attenuation Bias
-     *      4) fog coefficient (default same as aerosol, but a vec3).
-     *      5) fog anisotropy
-     *      6) fog tint */
-    float opticalDepthHeightFog = computeOpticalDepthExponentialHeightFog(O, endPoint, _planetRadius,
-      2000, 100, 2000, _numberOfTransmittanceSamples);
+    float opticalDepthHeightFog =
+      computeOpticalDepthExponentialHeightFog(O, endPoint, _planetRadius,
+      _scaleHeightHeightFog, _heightFogDensity, _heightFogAttenuationDistance,
+      _heightFogAttenuationBias, _numberOfTransmittanceSamples);
     float opticalDepthAerosol = computeOpticalDepthExponential(O, endPoint,
       _planetRadius, _scaleHeightAerosols, _aerosolDensity,
       _numberOfTransmittanceSamples);
@@ -113,7 +106,8 @@ void COMPUTE_TRANSMITTANCE (uint3 id : SV_DispatchThreadID)
     /* Compute transmittance from optical depth. */
     float3 T = exp(-_airCoefficientsF3 * (opticalDepthAir)
        - _ozoneCoefficientsF3 * opticalDepthOzone
-       - 1.1 * _aerosolCoefficient * (opticalDepthAerosol + opticalDepthHeightFog));
+       - 1.1 * _aerosolCoefficient * (opticalDepthAerosol)
+       - 1.1 * _heightFogCoefficientsF3 * (opticalDepthHeightFog));
 
     _TransmittanceTableRW[id.xy] = T;
 }
@@ -142,6 +136,7 @@ void COMPUTE_LIGHT_POLLUTION (uint3 id : SV_DispatchThreadID)
 
     float3 lightPollutionAir = float3(0.0, 0.0, 0.0);
     float3 lightPollutionAerosol = float3(0.0, 0.0, 0.0);
+    float3 lightPollutionHeightFog = float3(0.0, 0.0, 0.0);
     for (int i = 0; i < _numberOfLightPollutionSamples; i++) {
       float sampleT = 0.0;
       float ds = 0.0;
@@ -171,6 +166,12 @@ void COMPUTE_LIGHT_POLLUTION (uint3 id : SV_DispatchThreadID)
         _planetRadius, _scaleHeightAir, _airDensity) * ds;
       float scaledDensityAerosol = computeDensityExponential(samplePoint,
         _planetRadius, _scaleHeightAerosols, _aerosolDensity) * ds;
+      /* TODO: the attenuation may create problems since when we sample this
+       * table, O is not always at the player position. */
+      float scaledDensityHeightFog =
+        computeDensityExponentialHeightFog(samplePoint, _planetRadius,
+          _scaleHeightHeightFog, _heightFogDensity, _heightFogAttenuationDistance,
+          _heightFogAttenuationBias, length(O - samplePoint)) * ds;
 
       /* Compute transmittance from O to sample point. */
       float2 oToSample = mapTransmittanceCoordinates(length(O),
@@ -202,10 +203,12 @@ void COMPUTE_LIGHT_POLLUTION (uint3 id : SV_DispatchThreadID)
 
       lightPollutionAir += scaledDensityAir * T;
       lightPollutionAerosol += scaledDensityAerosol * T;
+      lightPollutionHeightFog += scaledDensityHeightFog * T;
     }
 
     _LightPollutionTableAirRW[id.xy] = lightPollutionAir;
     _LightPollutionTableAerosolRW[id.xy] = lightPollutionAerosol;
+    _LightPollutionTableHeightFogRW[id.xy] = lightPollutionAerosol;
 }
 
 [numthreads(4,4,4)]
@@ -247,8 +250,10 @@ void COMPUTE_SINGLE_SCATTERING (uint3 id : SV_DispatchThreadID)
 
   float3 inScatteringAir = float3(0.0, 0.0, 0.0);
   float3 inScatteringAerosol = float3(0.0, 0.0, 0.0);
+  float3 inScatteringHeightFog = float3(0.0, 0.0, 0.0);
   float3 inScatteringAirNoShadows = float3(0.0, 0.0, 0.0);
   float3 inScatteringAerosolNoShadows = float3(0.0, 0.0, 0.0);
+  float3 inScatteringHeightFogNoShadows = float3(0.0, 0.0, 0.0);
   for (int i = 0; i < _numberOfScatteringSamples; i++) {
     float sampleT = 0.0;
     float ds = 0.0;
@@ -285,13 +290,12 @@ void COMPUTE_SINGLE_SCATTERING (uint3 id : SV_DispatchThreadID)
      * sample point. */
     float scaledDensityAir = computeDensityExponential(samplePoint,
       _planetRadius, _scaleHeightAir, _airDensity) * ds;
-      // scaledDensityAir += computeDensityExponentialHeightFog(samplePoint, _planetRadius,
-        // 10000, 1000, 5000, t_hit) * ds;
     float scaledDensityAerosol = computeDensityExponential(samplePoint,
       _planetRadius, _scaleHeightAerosols, _aerosolDensity) * ds;
-    /* TODO: height fog*/
-    scaledDensityAerosol += computeDensityExponentialHeightFog(samplePoint, _planetRadius,
-      2000, 100, 2000, t_hit) * ds;
+    float scaledDensityHeightFog =
+      computeDensityExponentialHeightFog(samplePoint, _planetRadius,
+        _scaleHeightHeightFog, _heightFogDensity, _heightFogAttenuationDistance,
+        _heightFogAttenuationBias, length(O - samplePoint)) * ds;
 
     /* Compute transmittance from O to sample point, and then from sample
      * point through to the light hit. */
@@ -315,6 +319,7 @@ void COMPUTE_SINGLE_SCATTERING (uint3 id : SV_DispatchThreadID)
 
     inScatteringAirNoShadows += scaledDensityAir * T_oToSample;
     inScatteringAerosolNoShadows += scaledDensityAerosol * T_oToSample;
+    inScatteringHeightFogNoShadows += scaledDensityHeightFog * T_oToSample;
 
     /* Compute the light transmittance to the sample point. */
     float2 sampleToL = mapTransmittanceCoordinates(length(samplePoint),
@@ -334,18 +339,22 @@ void COMPUTE_SINGLE_SCATTERING (uint3 id : SV_DispatchThreadID)
         groundAlbedo /= PI;
         inScatteringAir += scaledDensityAir * T * (dot_L_sample * groundAlbedo);
         inScatteringAerosol += scaledDensityAerosol * T * (dot_L_sample * groundAlbedo);
+        inScatteringHeightFog += scaledDensityHeightFog * T * (dot_L_sample * groundAlbedo);
       }
     } else {
       inScatteringAir += scaledDensityAir * T;
       inScatteringAerosol += scaledDensityAerosol * T;
+      inScatteringHeightFog += scaledDensityHeightFog * T;
     }
 
   }
 
   _SingleScatteringTableAirRW[id] = inScatteringAir;
   _SingleScatteringTableAerosolRW[id] = inScatteringAerosol;
+  _SingleScatteringTableHeightFogRW[id] = inScatteringHeightFog;
   _SingleScatteringTableAirNoShadowsRW[id] = inScatteringAirNoShadows;
   _SingleScatteringTableAerosolNoShadowsRW[id] = inScatteringAerosolNoShadows;
+  _SingleScatteringTableHeightFogNoShadowsRW[id] = inScatteringHeightFogNoShadows;
 }
 
 [numthreads(4,1,1)]
@@ -362,6 +371,7 @@ void COMPUTE_GROUND_IRRADIANCE (uint3 id : SV_DispatchThreadID) {
 
   float3 aerosolContrib = float3(0.0, 0.0, 0.0);
   float3 airContrib = float3(0.0, 0.0, 0.0);
+  float3 heightFogContrib = float3(0.0, 0.0, 0.0);
   for (int i = 0; i < _numberOfGroundIrradianceSamples; i++) {
     /* Generate fibonacci hemisphere dir based on i. */
     float3 d = fibonacciHemisphere(i, _numberOfGroundIrradianceSamples);
@@ -385,20 +395,26 @@ void COMPUTE_GROUND_IRRADIANCE (uint3 id : SV_DispatchThreadID) {
         sampleTexture4D(_SingleScatteringTableAir, ssCoord);
       float3 singleScatteringContributionAerosol =
         sampleTexture4D(_SingleScatteringTableAerosol, ssCoord);
+      float3 singleScatteringContributionHeightFog =
+        sampleTexture4D(_SingleScatteringTableHeightFog, ssCoord);
 
       /* Compute single scattering contribution using phase functions. */
       float dot_L_d = dot(L, d);
       float rayleighPhase = computeAirPhase(dot_L_d);
       float miePhase = computeAerosolPhase(dot_L_d, g);
+      float heightFogPhase = computeAerosolPhase(dot_L_d, _heightFogAnisotropy);
 
       airContrib += singleScatteringContributionAir
       * rayleighPhase * PI / float(_numberOfGroundIrradianceSamples);
       aerosolContrib += singleScatteringContributionAerosol
         * miePhase * PI / float(_numberOfGroundIrradianceSamples);
+      heightFogContrib += singleScatteringContributionHeightFog
+        * heightFogPhase * PI / float(_numberOfGroundIrradianceSamples);
     }
   }
   _GroundIrradianceTableAirRW[id.xy] = airContrib;
   _GroundIrradianceTableAerosolRW[id.xy] = aerosolContrib;
+  _GroundIrradianceTableHeightFogRW[id.xy] = heightFogContrib;
 }
 
 [numthreads(4,4,1)]
@@ -466,8 +482,12 @@ void COMPUTE_LOCAL_MULTIPLE_SCATTERING (uint3 id : SV_DispatchThreadID) {
     float3 singleScatteringContributionAerosol =
       sampleTexture4D(_SingleScatteringTableAerosol, ssCoord);
 
+    float3 singleScatteringContributionHeightFog =
+      sampleTexture4D(_SingleScatteringTableHeightFog, ssCoord);
+
     secondOrder += (_airCoefficientsF3 * singleScatteringContributionAir
-      + _aerosolCoefficient * singleScatteringContributionAerosol)
+      + _aerosolCoefficient * singleScatteringContributionAerosol
+      + _heightFogCoefficientsF3 * singleScatteringContributionHeightFog)
       / (4.0 * PI);
 
     float3 singleScatteringContributionAirNoShadows =
@@ -476,8 +496,12 @@ void COMPUTE_LOCAL_MULTIPLE_SCATTERING (uint3 id : SV_DispatchThreadID) {
     float3 singleScatteringContributionAerosolNoShadows =
       sampleTexture4D(_SingleScatteringTableAerosolNoShadows, ssCoord);
 
+    float3 singleScatteringContributionHeightFogNoShadows =
+      sampleTexture4D(_SingleScatteringTableHeightFogNoShadows, ssCoord);
+
     transferFunction += (_airCoefficientsF3 * singleScatteringContributionAirNoShadows
-      + _aerosolCoefficient * singleScatteringContributionAerosolNoShadows);
+      + _aerosolCoefficient * singleScatteringContributionAerosolNoShadows
+      + _heightFogCoefficients * singleScatteringContributionHeightFogNoShadows);
   }
   /* Multiply by the isotropic phase function 1/4pi and divide by the number
    * of samples we took. */
@@ -526,6 +550,7 @@ void COMPUTE_GLOBAL_MULTIPLE_SCATTERING (uint3 id : SV_DispatchThreadID)
 
   float3 multipleScatteringAir = float3(0.0, 0.0, 0.0);
   float3 multipleScatteringAerosol = float3(0.0, 0.0, 0.0);
+  float3 multipleScatteringHeightFog = float3(0.0, 0.0, 0.0);
   for (int i = 0; i < _numberOfMultipleScatteringAccumulationSamples; i++) {
     float sampleT = 0.0;
     float ds = 0.0;
@@ -560,11 +585,16 @@ void COMPUTE_GLOBAL_MULTIPLE_SCATTERING (uint3 id : SV_DispatchThreadID)
       _planetRadius, _scaleHeightAir, _airDensity) * ds;
     float scaledDensityAerosol = computeDensityExponential(samplePoint,
       _planetRadius, _scaleHeightAerosols, _aerosolDensity) * ds;
+    float scaledDensityHeightFog = computeDensityExponentialHeightFog(samplePoint,
+      _planetRadius, _scaleHeightHeightFog, _heightFogDensity,
+      _heightFogAttenuationDistance, _heightFogAttenuationBias, length(samplePoint - O)) * ds;
 
     multipleScatteringAir += msContrib * scaledDensityAir;
     multipleScatteringAerosol += msContrib * scaledDensityAerosol;
+    multipleScatteringHeightFog += msContrib * scaledDensityHeightFog;
   }
 
   _GlobalMultipleScatteringTableAirRW[id] = multipleScatteringAir;
   _GlobalMultipleScatteringTableAerosolRW[id] = multipleScatteringAerosol;
+  _GlobalMultipleScatteringTableHeightFogRW[id] = multipleScatteringHeightFog;
 }
